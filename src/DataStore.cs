@@ -24,7 +24,7 @@ namespace BoutiquePOS
         {
             if (cfg != null && cfg.IsApi)
             {
-                ApiStore.TestConnection(cfg);   // fail fast with a clear message (bad URL / revoked token)
+                ApiStore.TestConnection(cfg);   // fail fast with a clear message (wrong address / server down)
                 return new ApiStore(cfg);
             }
             if (cfg != null && cfg.IsMySql)
@@ -35,13 +35,46 @@ namespace BoutiquePOS
             return new XmlStore(AppPaths.DataDir, true);
         }
 
-        public static void Open(DbConfig cfg, IStore store)
+        /// <summary>Connects without loading data (sign-in comes first; the web API needs it before anything else).</summary>
+        public static void Attach(DbConfig cfg, IStore store)
         {
             Config = cfg;
             Store = store;
-            Data = store.LoadAll();
+        }
+
+        /// <summary>Loads products and settings. Call after a successful Login.</summary>
+        public static void Load()
+        {
+            Data = Store.LoadAll();
             lastRefresh = DateTime.Now;
         }
+
+        public static void Open(DbConfig cfg, IStore store)
+        {
+            Attach(cfg, store);
+            Load();
+        }
+
+        // ---------------- sign-in & staff (RBAC) ----------------
+
+        public static SessionUser Login(string username, string password)
+        {
+            SessionUser s = Store.Login(username, password);
+            Session.Current = s;
+            return s;
+        }
+
+        public static void Logout()
+        {
+            try { Store.Logout(); } finally { Session.Current = null; }
+        }
+
+        public static List<StaffUser> ListUsers() { Session.Require(Permissions.UsersManage); return Store.ListUsers(); }
+        public static List<StaffRole> ListRoles() { Session.Require(Permissions.UsersManage); return Store.ListRoles(); }
+        public static void SaveUser(StaffUser u, string newPassword) { Session.Require(Permissions.UsersManage); Store.SaveUser(u, newPassword); }
+        public static void DeleteUser(StaffUser u) { Session.Require(Permissions.UsersManage); Store.DeleteUser(u); }
+        public static void SaveRole(StaffRole r) { Session.Require(Permissions.UsersManage); Store.SaveRole(r); }
+        public static void DeleteRole(StaffRole r) { Session.Require(Permissions.UsersManage); Store.DeleteRole(r); }
 
         /// <summary>Re-reads products from a shared database (other registers may have changed them).</summary>
         public static bool RefreshProducts(bool force)
@@ -84,6 +117,7 @@ namespace BoutiquePOS
         /// </summary>
         public static void SaveProduct(Product work, Product original)
         {
+            Session.Require(Permissions.InventoryEdit);
             bool isNew = original == null;
             int delta = isNew ? work.Quantity : work.Quantity - original.Quantity;
             Store.SaveProduct(work, isNew, delta);
@@ -95,12 +129,14 @@ namespace BoutiquePOS
         /// <summary>Bulk add/update used by CSV import (each item is written individually).</summary>
         public static void UpsertProduct(Product p, bool isNew, int quantityDelta)
         {
+            Session.Require(Permissions.InventoryEdit);
             Store.SaveProduct(p, isNew, quantityDelta);
             if (isNew) Data.Products.Add(p);
         }
 
         public static void DeleteProducts(IEnumerable<Product> products)
         {
+            Session.Require(Permissions.InventoryEdit);
             foreach (Product p in products.ToList())
             {
                 Store.DeleteProduct(p);
@@ -111,6 +147,7 @@ namespace BoutiquePOS
 
         public static void ChangeQuantity(Product p, int delta, string reason)
         {
+            Session.Require(Permissions.StockAdjust);
             int q = Store.ChangeQuantity(p, delta, reason);
             p.Quantity = q;
             p.Updated = DateTime.Now;
@@ -124,6 +161,7 @@ namespace BoutiquePOS
 
         public static string NextBarcode()
         {
+            Session.Require(Permissions.InventoryEdit);
             ApiStore api = Store as ApiStore;
             if (api != null) return api.NextBarcode();   // the server owns numbering and the prefix
             string prefix = (Data.Settings.BarcodePrefix ?? "").Trim().ToUpperInvariant();
@@ -147,6 +185,11 @@ namespace BoutiquePOS
 
         public static void RecordSale(Sale s)
         {
+            Session.Require(Permissions.Sell);
+            bool priceChanged = s.Lines.Any(l => { Product p = FindById(l.ProductId); return p != null && l.UnitPrice != p.Price; });
+            if ((s.DiscountPercent > 0 || priceChanged) && !Session.Can(Permissions.Discount))
+                throw new PermissionDeniedException("Your role does not allow discounts or price changes.");
+            s.Cashier = Session.Current.CashierName;
             Dictionary<string, int> q = Store.InsertSale(s);
             ApplyQuantities(q);
             if (!Store.IsShared) Data.Sales.Add(s);
@@ -155,6 +198,7 @@ namespace BoutiquePOS
 
         public static void RefundSale(Sale s)
         {
+            Session.Require(Permissions.Refund);
             DateTime when = DateTime.Now;
             Dictionary<string, int> q = Store.RefundSale(s, when);
             s.Refunded = true;
@@ -186,8 +230,17 @@ namespace BoutiquePOS
 
         // ---------------- settings / backup ----------------
 
+        /// <summary>This PC's preferences (label stock, printers). Any signed-in user may change them.</summary>
+        public static void SaveDevicePreferences()
+        {
+            if (Store is XmlStore) Store.Commit();
+            else MySqlStore.SaveDeviceSettings(Data.Settings);
+        }
+
+        /// <summary>Shared store settings (name, tax...) plus device settings. Needs settings.manage.</summary>
         public static void SaveSettings()
         {
+            Session.Require(Permissions.SettingsManage);
             Store.SaveSettings(Data.Settings);
             Store.Commit();
         }

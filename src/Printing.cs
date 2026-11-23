@@ -243,6 +243,7 @@ namespace BoutiquePOS
             if (!string.IsNullOrEmpty(st.Phone)) L.Add(Center(st.Phone, w));
             L.Add("");
             L.Add(LR("Receipt " + sale.Code, sale.Date.ToString("yyyy-MM-dd HH:mm"), w));
+            if (!string.IsNullOrEmpty(sale.Cashier)) L.Add("Cashier: " + sale.Cashier);
             L.Add(rule);
             foreach (SaleLine l in sale.Lines)
             {

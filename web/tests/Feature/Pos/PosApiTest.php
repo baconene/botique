@@ -3,7 +3,8 @@
 namespace Tests\Feature\Pos;
 
 use App\Models\Pos\Product;
-use App\Models\Pos\Register;
+use App\Models\Pos\Staff;
+use App\Services\Pos\PasswordHasher;
 use App\Models\User;
 use App\Services\Pos\Money;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -15,15 +16,17 @@ class PosApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    private Register $register;
+    private Staff $admin;
 
     private array $auth;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->register = Register::create(['name' => 'Front counter']);
-        $this->auth = ['Authorization' => 'Bearer '.$this->register->createToken('pos')->plainTextToken];
+        $this->admin = new Staff(['username' => 'admin', 'display_name' => 'Ana Admin', 'role_id' => 1, 'active' => true]);
+        $this->admin->password_hash = PasswordHasher::hash('secret123');
+        $this->admin->save();
+        $this->auth = ['Authorization' => 'Bearer '.$this->admin->createToken('Front counter')->plainTextToken];
     }
 
     private function product(array $over = []): Product
@@ -52,33 +55,18 @@ class PosApiTest extends TestCase
         $this->getJson('/api/v1/ping')->assertOk()->assertJson(['status' => 'ok', 'api' => 'v1']);
     }
 
-    public function test_endpoints_require_a_register_token(): void
+    public function test_endpoints_require_a_staff_session(): void
     {
         $this->getJson('/api/v1/products')->assertUnauthorized();
         $this->withHeaders(['Authorization' => 'Bearer nonsense'])->getJson('/api/v1/products')->assertUnauthorized();
-        $this->withHeaders($this->auth)->getJson('/api/v1/me')->assertOk()->assertJsonPath('data.name', 'Front counter');
+        $this->withHeaders($this->auth)->getJson('/api/v1/auth/me')->assertOk()->assertJsonPath('data.username', 'admin');
     }
 
-    public function test_user_tokens_are_not_register_tokens(): void
+    public function test_web_user_tokens_are_not_staff_sessions(): void
     {
-        // A Sanctum token that belongs to another model type must be refused by the pos.register middleware.
         $token = User::factory()->create()->createToken('dashboard')->plainTextToken;
         $this->withHeaders(['Authorization' => 'Bearer '.$token])->getJson('/api/v1/products')->assertForbidden();
     }
-
-    public function test_revoked_register_is_refused(): void
-    {
-        $this->artisan('pos:revoke', ['id' => $this->register->id])->assertSuccessful();
-        $this->app['auth']->forgetGuards();
-        $this->withHeaders($this->auth)->getJson('/api/v1/products')->assertUnauthorized();
-    }
-
-    public function test_register_command_prints_a_working_token(): void
-    {
-        $this->artisan('pos:register', ['name' => 'Back office'])->assertSuccessful();
-        $this->assertDatabaseHas('pos_registers', ['name' => 'Back office']);
-    }
-
     // ---------------- products ----------------
 
     public function test_create_product_generates_barcode_and_logs_stock(): void
@@ -149,7 +137,7 @@ class PosApiTest extends TestCase
         $r->assertJsonPath('data.number', 1001)->assertJsonPath('data.code', 'R001001')
             ->assertJsonPath('data.subtotal', '220.00')->assertJsonPath('data.discount_amount', '22.00')
             ->assertJsonPath('data.tax', '13.86')->assertJsonPath('data.total', '211.86')
-            ->assertJsonPath('data.change_due', '38.14')->assertJsonPath('data.terminal', 'Front counter')
+            ->assertJsonPath('data.change_due', '38.14')->assertJsonPath('data.terminal', 'Front counter / admin')->assertJsonPath('data.cashier', 'Ana Admin')
             ->assertJsonPath('data.lines.0.name', 'Linen Wrap Dress')->assertJsonPath("quantities.{$p->id}", 8);
         $this->assertSame(8, $p->fresh()->quantity);
         $this->assertDatabaseHas('stock_movements', ['product_id' => $p->id, 'change_qty' => -2, 'reason' => 'sale', 'reference' => 'R001001']);

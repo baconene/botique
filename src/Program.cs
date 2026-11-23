@@ -71,7 +71,20 @@ namespace BoutiquePOS
             {
                 try
                 {
-                    DataStore.Open(cfg, DataStore.CreateStore(cfg));
+                    // 1. connect   2. first Admin (local stores only)   3. sign in   4. load data
+                    DataStore.Attach(cfg, DataStore.CreateStore(cfg));
+                    string preset = "";
+                    if (!DataStore.Store.HasUsers())
+                    {
+                        using (FirstAdminForm f = new FirstAdminForm())
+                        {
+                            if (f.ShowDialog() != DialogResult.OK) return false;
+                            preset = f.Username;
+                        }
+                    }
+                    using (LoginForm login = new LoginForm("Boutique POS", cfg.Describe(), false, preset))
+                        if (login.ShowDialog() != DialogResult.OK) return false;
+                    DataStore.Load();
                     return true;
                 }
                 catch (Exception ex)
@@ -205,11 +218,52 @@ namespace BoutiquePOS
                 if (Directory.Exists(dataDir)) Directory.Delete(dataDir, true);
                 AppPaths.UseDir(dataDir);
                 DbConfig cfg = new DbConfig();
-                DataStore.Open(cfg, DataStore.CreateStore(cfg));
+
+                // --- Sign-in & first Admin ---
+                string vector = PasswordHasher.Format(Encoding.UTF8.GetBytes("fixed-salt-16byt"),
+                    Convert.FromBase64String("Tp1pzUOJkR3nd6S73zjMJlozvBG0iGolb7PdoeDgWhE="), 100000);
+                Check(PasswordHasher.Verify("S3cret!pass", vector) && !PasswordHasher.Verify("wrong", vector),
+                    "Password hash matches the server's PHP reference value (pbkdf2-sha256)");
+                DataStore.Attach(cfg, DataStore.CreateStore(cfg));
+                Check(!DataStore.Store.HasUsers(), "New store has no accounts yet (first-Admin setup shown)");
+                DataStore.Store.CreateFirstAdmin("Owner", "Olivia Owner", "owner123");
+                Check(Throws(delegate { DataStore.Login("owner", "nope"); }) && Session.Current == null, "Wrong password is rejected");
+                DataStore.Login("OWNER", "owner123");
+                Check(Session.Current != null && Session.Current.IsAdmin && Session.Current.Permissions.Count == Permissions.All.Length,
+                    "Admin signs in with every permission");
+                DataStore.Load();
                 Check(DataStore.Data.Products.Count == 6, "Sample inventory seeded (6 items)");
                 Check(DataStore.FindProduct("btq000001") != null, "Barcode lookup is case-insensitive");
 
                 Sale sale = CoreFlow(false);
+                Check(sale.Cashier == "Olivia Owner", "Sale records the cashier (" + sale.Cashier + ")");
+
+                // --- RBAC ---
+                StaffUser cashier = new StaffUser(); cashier.Username = "maria"; cashier.DisplayName = "Maria"; cashier.RoleId = 3;
+                DataStore.SaveUser(cashier, "maria123");
+                Check(Throws(delegate { StaffUser dup = new StaffUser(); dup.Username = "MARIA"; dup.RoleId = 3; DataStore.SaveUser(dup, "abcdef"); }),
+                    "Duplicate username is rejected");
+                StaffUser me = DataStore.ListUsers().First(u => u.Username == "owner");
+                me.Active = false;
+                Check(Throws(delegate { DataStore.SaveUser(me, null); }), "Admin cannot disable their own account");
+                me.Active = true; me.RoleId = 2;
+                Check(Throws(delegate { DataStore.SaveUser(me, null); }), "The last active Admin cannot lose the Admin role");
+                StaffRole senior = new StaffRole(); senior.Name = "Senior cashier"; senior.Permissions = "sell,discount,refund";
+                DataStore.SaveRole(senior);
+                Check(Throws(delegate { DataStore.DeleteRole(DataStore.ListRoles().First(r => r.Id == 1)); }), "Admin role cannot be deleted");
+
+                DataStore.Logout();
+                DataStore.Login("maria", "maria123");
+                Check(Session.Can(Permissions.Sell) && !Session.Can(Permissions.Refund), "Cashier role: can sell, cannot refund");
+                Product anyItem = DataStore.Data.Products.First();
+                Check(Throws(delegate { DataStore.RefundSale(sale); }), "Cashier is blocked from refunds");
+                Check(Throws(delegate { DataStore.ChangeQuantity(anyItem, 1, "x"); }), "Cashier is blocked from stock adjustments");
+                Check(Throws(delegate { DataStore.SaveProduct(anyItem.Clone(), anyItem); }), "Cashier is blocked from editing items");
+                Check(Throws(delegate { DataStore.ListUsers(); }), "Cashier is blocked from Users & roles");
+                Sale discounted = new Sale(); discounted.DiscountPercent = 10; discounted.Lines.Add(SaleLine.FromProduct(anyItem));
+                Check(Throws(delegate { DataStore.RecordSale(discounted); }), "Cashier is blocked from discounts");
+                DataStore.Logout();
+                DataStore.Login("owner", "owner123");
 
                 // Reload from disk
                 DataStore.Open(cfg, DataStore.CreateStore(cfg));
@@ -245,9 +299,9 @@ namespace BoutiquePOS
                 form.ShowInTaskbar = false;
                 form.Show();
                 Application.DoEvents();
-                string[] names = { "sell", "inventory", "sales", "labels", "settings" };
+                string[] names = { "sell", "inventory", "sales", "labels", "settings", "users" };
                 Button[] navigation = form.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<Button>().ToArray();
-                Control[] pages = { form.Pos, form.Inventory, form.Sales, form.Labels, form.SettingsView };
+                Control[] pages = { form.Pos, form.Inventory, form.Sales, form.Labels, form.SettingsView, form.UsersView };
                 form.Pos.HandleScan(DataStore.Data.Products.First().Barcode);
                 form.Labels.AddProducts(DataStore.Data.Products.Take(3), false);
                 for (int i = 0; i < names.Length; i++)
@@ -289,6 +343,13 @@ namespace BoutiquePOS
                 Application.DoEvents();
                 Shot(setup, Path.Combine(outDir, "database-setup-cloud.png"));
                 setup.Close();
+                using (LoginForm login = new LoginForm("My Boutique", cfg.Describe(), false, ""))
+                {
+                    login.StartPosition = FormStartPosition.Manual; login.Location = new Point(-5000, -5000);
+                    login.Show(); Application.DoEvents();
+                    Shot(login, Path.Combine(outDir, "login.png"));
+                    login.Close();
+                }
                 Check(true, "Captured screenshots");
             }
             catch (Exception ex)
@@ -297,6 +358,12 @@ namespace BoutiquePOS
                 log.AppendLine("FAIL  Exception: " + ex);
             }
             return Finish(outDir);
+        }
+
+        static bool Throws(Action a)
+        {
+            try { a(); return false; }
+            catch (Exception) { return true; }
         }
 
         static void Shot(Form f, string path)
@@ -323,13 +390,17 @@ namespace BoutiquePOS
                 cfg.Host = args[1]; cfg.Port = int.Parse(args[2]); cfg.Database = args[3]; cfg.User = args[4]; cfg.Password = args[5];
                 log.AppendLine("INFO  ODBC driver: " + (OdbcDrivers.BestMySql() ?? "(none)"));
                 log.AppendLine("INFO  Server version: " + MySqlStore.TestConnection(cfg));
-                DataStore.Open(cfg, DataStore.CreateStore(cfg));
-                Check(true, "Schema ensured (version " + MySqlStore.SchemaVersion + ") and data loaded: " + DataStore.Data.Products.Count + " products");
+                DataStore.Attach(cfg, DataStore.CreateStore(cfg));
+                if (!DataStore.Store.HasUsers()) DataStore.Store.CreateFirstAdmin("dbtest", "DB Test", "dbtest123");
+                DataStore.Login("dbtest", "dbtest123");   // a throwaway test database is expected
+                DataStore.Load();
+                Check(Session.Current.IsAdmin, "Schema ensured (version " + MySqlStore.SchemaVersion + "), Admin signed in, " + DataStore.Data.Products.Count + " products loaded");
 
                 CoreFlow(true);
 
                 // A second "register": a fresh store instance must see the same stock
                 MySqlStore other = new MySqlStore(cfg);
+                Check(other.ListRoles().Count >= 4, "Default roles exist in the staff_roles table");
                 Product last = DataStore.Data.Products.OrderByDescending(x => x.Created).First();
                 Product seen = other.FindProduct(last.Barcode);
                 Check(seen != null && seen.Quantity == last.Quantity, "Another register sees the same quantity");
@@ -353,21 +424,25 @@ namespace BoutiquePOS
             return Finish(outDir);
         }
 
-        /// <summary>--apitest &lt;baseUrl&gt; &lt;registerToken&gt; [outDir] : the same rules through the Laravel web API (use a test server!).</summary>
+        /// <summary>--apitest &lt;baseUrl&gt; &lt;adminUser&gt; &lt;adminPassword&gt; [outDir] : the same rules through the Laravel web API (use a test server!).</summary>
         public static int RunApi(string[] args)
         {
             log = new StringBuilder();
             failures = 0;
-            string outDir = args.Length >= 4 ? args[3] : Path.Combine(Path.GetTempPath(), "BoutiquePOS-apitest");
+            string outDir = args.Length >= 5 ? args[4] : Path.Combine(Path.GetTempPath(), "BoutiquePOS-apitest");
             Directory.CreateDirectory(outDir);
             try
             {
-                if (args.Length < 3) throw new ArgumentException("Usage: --apitest <baseUrl> <registerToken> [outDir]");
+                if (args.Length < 4) throw new ArgumentException("Usage: --apitest <baseUrl> <adminUser> <adminPassword> [outDir]");
                 AppPaths.UseDir(Path.Combine(outDir, "data"));
                 DbConfig cfg = new DbConfig();
-                cfg.Mode = DbConfig.ModeApi; cfg.Location = DbConfig.LocCloud; cfg.ApiUrl = args[1]; cfg.ApiToken = args[2];
-                log.AppendLine("INFO  Register: " + ApiStore.TestConnection(cfg));
-                DataStore.Open(cfg, DataStore.CreateStore(cfg));
+                cfg.Mode = DbConfig.ModeApi; cfg.Location = DbConfig.LocCloud; cfg.ApiUrl = args[1];
+                log.AppendLine("INFO  Server time: " + ApiStore.TestConnection(cfg));
+                DataStore.Attach(cfg, DataStore.CreateStore(cfg));
+                Check(Throws(delegate { DataStore.Login(args[2], "definitely-wrong"); }), "Server rejects a wrong password");
+                DataStore.Login(args[2], args[3]);
+                Check(Session.Current.IsAdmin && Session.Current.Permissions.Count == Permissions.All.Length, "Admin signs in through POST /auth/login with every permission");
+                DataStore.Load();
                 int before = DataStore.Data.Products.Count;
                 Check(true, "Connected and loaded " + before + " products and shared settings (store \"" + DataStore.Data.Settings.StoreName + "\")");
 
@@ -376,6 +451,7 @@ namespace BoutiquePOS
 
                 // A second register sees the same data
                 ApiStore other = new ApiStore(cfg);
+                other.Login(args[2], args[3]);
                 Product last = DataStore.Data.Products.OrderByDescending(x => x.Created).First();
                 Product seen = other.FindProduct(last.Barcode);
                 Check(seen != null && seen.Quantity == last.Quantity, "Another register sees the same quantity");
@@ -401,6 +477,27 @@ namespace BoutiquePOS
                 Check(other.FindProduct(last.Barcode) == null, "Delete removes the product");
                 DataStore.RefreshProducts(true);
                 Check(DataStore.FindById(last.Id) == null && DataStore.Data.Products.Count == before, "Deleted item drops out on sync");
+
+                // RBAC enforced by the SERVER (calls go straight to the store, skipping the app's own checks)
+                StaffUser cashier = new StaffUser(); cashier.Username = "apitest.cashier" + DateTime.Now.Ticks % 100000; cashier.DisplayName = "Test Cashier"; cashier.RoleId = 3;
+                DataStore.SaveUser(cashier, "cashier123");
+                Check(DataStore.ListUsers().Any(u => u.Username == cashier.Username && u.RoleName == "Cashier"), "Admin created a Cashier through the API");
+                ApiStore till = new ApiStore(cfg);
+                SessionUser cs = till.Login(cashier.Username, "cashier123");
+                Check(cs.Permissions.Contains(Permissions.Sell) && !cs.Permissions.Contains(Permissions.Refund), "Cashier signs in with the Cashier role's permissions");
+                Sale toRefund = DataStore.FindSaleByCode(sale.Code);
+                bool denied = false;
+                try { till.RefundSale(toRefund, DateTime.Now); } catch (PermissionDeniedException) { denied = true; }
+                Check(denied, "Server refuses a refund from a Cashier (403)");
+                denied = false;
+                try { till.ListUsers(); } catch (PermissionDeniedException) { denied = true; }
+                Check(denied, "Server refuses Users & roles to a Cashier (403)");
+                till.Logout();
+                Check(Throws(delegate { till.ListRoles(); }), "Signed-out session no longer works");
+                cashier.Active = false;
+                DataStore.SaveUser(cashier, null);
+                Check(Throws(delegate { new ApiStore(cfg).Login(cashier.Username, "cashier123"); }), "Disabled account cannot sign in");
+                DataStore.DeleteUser(cashier);
             }
             catch (Exception ex)
             {

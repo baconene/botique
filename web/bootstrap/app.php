@@ -14,7 +14,8 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'pos.register' => \App\Http\Middleware\EnsurePosRegister::class,
+            'pos.staff' => \App\Http\Middleware\EnsurePosStaff::class,
+            'pos.can' => \App\Http\Middleware\RequirePosPermission::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

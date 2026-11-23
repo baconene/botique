@@ -3,11 +3,12 @@
 namespace App\Services\Pos;
 
 use App\Models\Pos\Product;
-use App\Models\Pos\Register;
+use App\Models\Pos\Staff;
 use App\Models\Pos\Sale;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
@@ -21,7 +22,7 @@ class SaleService
      *
      * @return array{sale: Sale, quantities: array<string,int>, replayed: bool}
      */
-    public function create(Register $register, array $data): array
+    public function create(Staff $staff, array $data): array
     {
         if ($existing = $this->replay($data['client_ref'])) {
             return ['sale' => $existing, 'quantities' => [], 'replayed' => true];
@@ -49,6 +50,17 @@ class SaleService
                 'quantity' => (int) $l['quantity'],
             ];
         }
+        // Discounts and price changes on inventory items need the "discount" permission.
+        $priceChanged = false;
+        foreach ($data['lines'] as $i => $l) {
+            $p = isset($l['product_id']) ? $products->get($l['product_id']) : null;
+            if ($p && isset($l['unit_price']) && Money::toCents($l['unit_price']) !== Money::toCents($p->price)) {
+                $priceChanged = true;
+            }
+        }
+        if (($priceChanged || Money::scaled((string) ($data['discount_percent'] ?? '0'), 2) > 0) && ! $staff->hasPermission('discount')) {
+            throw new AccessDeniedHttpException('Your role does not allow discounts or price changes.');
+        }
         if (! array_filter($lines, fn ($l) => $l['name'] !== '')) {
             throw new UnprocessableEntityHttpException('Each line needs a product_id or a name.');
         }
@@ -65,11 +77,12 @@ class SaleService
                 throw new UnprocessableEntityHttpException('Cash received ('.Money::format($tendered).') is less than the total ('.Money::format($t['total']).').');
             }
         }
-        $terminal = substr($register->name, 0, 64);
+        $terminal = $staff->terminalLabel();
+        $cashier = $staff->cashierName();
         $date = isset($data['sale_date']) ? Carbon::parse($data['sale_date'])->setTimezone(config('app.timezone')) : now();
 
         try {
-            return DB::transaction(function () use ($data, $lines, $t, $method, $tendered, $terminal, $date, $register, $discountPct, $taxRate) {
+            return DB::transaction(function () use ($data, $lines, $t, $method, $tendered, $terminal, $cashier, $date, $staff, $discountPct, $taxRate) {
                 $number = $this->inventory->nextNumber('sale');
                 $sale = Sale::create([
                     'number' => $number,
@@ -87,6 +100,7 @@ class SaleService
                     'refund_date' => null,
                     'note' => substr($data['note'] ?? '', 0, 500),
                     'terminal' => $terminal,
+                    'cashier' => $cashier,
                 ]);
                 foreach ($lines as $i => $l) {
                     $sale->lines()->create([
@@ -104,7 +118,7 @@ class SaleService
                 DB::table('pos_sale_requests')->insert([
                     'client_ref' => $data['client_ref'],
                     'sale_number' => $number,
-                    'register_id' => $register->id,
+                    'register_id' => $staff->id,   // column predates staff logins; holds the staff id
                     'created_at' => now(),
                 ]);
 
@@ -120,9 +134,9 @@ class SaleService
     }
 
     /** @return array{sale: Sale, quantities: array<string,int>} */
-    public function refund(Register $register, Sale $sale): array
+    public function refund(Staff $staff, Sale $sale): array
     {
-        $terminal = substr($register->name, 0, 64);
+        $terminal = $staff->terminalLabel();
 
         return DB::transaction(function () use ($sale, $terminal) {
             $updated = Sale::whereKey($sale->number)->where('refunded', false)

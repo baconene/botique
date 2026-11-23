@@ -78,6 +78,7 @@ namespace BoutiquePOS
             gridSales.Columns.Add(Ui.MoneyCol("Tax", "Tax", 80, true));
             gridSales.Columns.Add(Ui.MoneyCol("Total", "Total", 100, true));
             gridSales.Columns.Add(Ui.Col("Payment", "PaymentMethod", 90, true));
+            gridSales.Columns.Add(Ui.Col("Cashier", "Cashier", 110, true));
             gridSales.Columns.Add(Ui.Col("Status", "Status", 0, true));
             gridSales.SelectionChanged += delegate { ShowLines(); };
             gridSales.CellFormatting += delegate(object s, DataGridViewCellFormattingEventArgs e)
@@ -101,7 +102,7 @@ namespace BoutiquePOS
             actions.AutoSize = true; actions.Dock = DockStyle.Fill;
             actions.Controls.Add(Ui.MakeButton("Reprint receipt", delegate { Reprint(); }));
             actions.Controls.Add(Ui.MakeButton("Preview receipt", delegate { PreviewReceipt(); }));
-            actions.Controls.Add(Ui.MakeButton("Refund / return entire sale...", delegate { Refund(); }));
+            actions.Controls.Add(btnRefund = Ui.MakeButton("Refund / return entire sale...", delegate { Refund(); }));
             actions.Controls.Add(Ui.MakeButton("Export sales CSV...", delegate { ExportCsv(); }));
             Label hint = new Label(); hint.AutoSize = true; hint.ForeColor = Ui.Muted; hint.Margin = new Padding(Ui.S(12), Ui.S(10), 0, 0);
             hint.Text = "Tip: scan the barcode at the bottom of a receipt to find that sale.";
@@ -125,6 +126,10 @@ namespace BoutiquePOS
             try { first = DataStore.FirstSaleDate(); } catch (Exception ex) { main.SetStatus("Database error: " + ex.Message, true); }
             SetRange(first.HasValue ? first.Value.Date : DateTime.Today, DateTime.Today);
         }
+
+        Button btnRefund;
+
+        public void ApplyPermissions() { btnRefund.Enabled = Session.Can(Permissions.Refund); }
 
         public void RefreshList()
         {

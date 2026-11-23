@@ -22,7 +22,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Registers scan quickly; allow 600 requests/minute per register token.
+        // Registers scan quickly; allow 600 requests/minute per signed-in staff member.
         RateLimiter::for('pos', fn (Request $request) => Limit::perMinute(600)->by($request->user()?->getKey() ?: $request->ip()));
+        // Slow down password guessing: 10 sign-in attempts per minute per username + IP.
+        RateLimiter::for('pos-login', fn (Request $request) => Limit::perMinute(10)->by(strtolower((string) $request->input('username')).'|'.$request->ip()));
     }
 }

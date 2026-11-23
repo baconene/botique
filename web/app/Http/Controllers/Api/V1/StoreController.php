@@ -27,13 +27,6 @@ class StoreController extends Controller
         ]);
     }
 
-    public function me(Request $request): JsonResponse
-    {
-        $r = $request->user();
-
-        return response()->json(['data' => ['id' => $r->id, 'name' => $r->name]]);
-    }
-
     /** GET /stats - catalogue size and the date range of recorded sales (used for "All time" views). */
     public function stats(): JsonResponse
     {

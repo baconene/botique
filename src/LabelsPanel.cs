@@ -119,7 +119,7 @@ namespace BoutiquePOS
                 numStart.Enabled = l.IsSheet;
                 numStart.Maximum = l.PerPage;
                 DataStore.Data.Settings.LabelLayout = l.Key;
-                try { DataStore.SaveSettings(); } catch (Exception) { /* non-critical preference */ }
+                try { DataStore.SaveDevicePreferences(); } catch (Exception) { /* non-critical preference */ }
                 RefreshPreview();
             };
             right.Controls.Add(cmbLayout);
@@ -257,7 +257,7 @@ namespace BoutiquePOS
             if (labels.Count == 0) { Ui.Error(this, "Add at least one item (with copies > 0) to print."); return; }
             LabelLayout layout = (LabelLayout)cmbLayout.SelectedItem;
             string printer = SelectedPrinter();
-            if (DataStore.Data.Settings.LabelPrinter != printer) { DataStore.Data.Settings.LabelPrinter = printer; try { DataStore.SaveSettings(); } catch (Exception) { } }
+            if (DataStore.Data.Settings.LabelPrinter != printer) { DataStore.Data.Settings.LabelPrinter = printer; try { DataStore.SaveDevicePreferences(); } catch (Exception) { } }
             try
             {
                 using (PrintDocument doc = LabelPrinter.CreateDocument(labels, layout, (int)numStart.Value, printer, DataStore.Data.Settings.StoreName))

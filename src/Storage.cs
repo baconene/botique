@@ -38,6 +38,35 @@ namespace BoutiquePOS
         /// <summary>Everything, including all sales (for backups and migration).</summary>
         AppData ExportAll();
         void Commit();
+
+        // ---- staff accounts & roles (RBAC) ----
+        /// <summary>Checks the credentials. Throws InvalidOperationException with a user-facing message on failure.</summary>
+        SessionUser Login(string username, string password);
+        void Logout();
+        /// <summary>False only for a brand-new local store (the app then asks for the first Admin).</summary>
+        bool HasUsers();
+        void CreateFirstAdmin(string username, string displayName, string password);
+        List<StaffUser> ListUsers();
+        /// <summary>Id 0 = new. newPassword null/empty = keep the current password.</summary>
+        void SaveUser(StaffUser user, string newPassword);
+        void DeleteUser(StaffUser user);
+        List<StaffRole> ListRoles();
+        void SaveRole(StaffRole role);
+        void DeleteRole(StaffRole role);
+    }
+
+    /// <summary>Local sign-in logic shared by the offline and MySQL stores.</summary>
+    static class LocalAuth
+    {
+        public static SessionUser Check(StaffUser u, StaffRole role, string password)
+        {
+            if (!PasswordHasher.Verify(password, u != null ? u.PasswordHash : null))
+                throw new InvalidOperationException("Wrong username or password.");
+            if (!u.Active) throw new InvalidOperationException("This account has been disabled. Ask an admin.");
+            SessionUser s = Session.FromLocal(u, role);
+            if (s.Permissions.Count == 0) throw new InvalidOperationException("Your role has no permissions in the POS.");
+            return s;
+        }
     }
 
     // =====================================================================================
@@ -61,8 +90,10 @@ namespace BoutiquePOS
             using (FileStream fs = File.OpenRead(path)) return (AppData)ser.Deserialize(fs);
         }
 
-        public AppData LoadAll()
+        /// <summary>Loads the file once (sign-in happens before the full load).</summary>
+        AppData Ensure()
         {
+            if (data != null) return data;
             Directory.CreateDirectory(dir);
             if (File.Exists(FilePath)) data = ReadFile(FilePath);
             else
@@ -73,8 +104,16 @@ namespace BoutiquePOS
             if (data.Settings == null) data.Settings = new StoreSettings();
             if (data.Products == null) data.Products = new List<Product>();
             if (data.Sales == null) data.Sales = new List<Sale>();
+            if (data.Users == null) data.Users = new List<StaffUser>();
+            if (data.Roles == null || data.Roles.Count == 0) data.Roles = Permissions.DefaultRoles();
             if (data.NextSaleNumber < 1) data.NextSaleNumber = 1001;
             if (data.NextItemNumber < 1) data.NextItemNumber = 1;
+            return data;
+        }
+
+        public AppData LoadAll()
+        {
+            Ensure();
             Commit();
             DailyBackup();
             return data;
@@ -133,6 +172,100 @@ namespace BoutiquePOS
 
         public AppData ExportAll() { return data; }
 
+        // ---- staff (stored in the same file) ----
+
+        public SessionUser Login(string username, string password)
+        {
+            Ensure();
+            string name = StaffUser.Normalize(username);
+            StaffUser u = data.Users.FirstOrDefault(x => x.Username == name);
+            SessionUser s = LocalAuth.Check(u, u == null ? null : data.Roles.FirstOrDefault(r => r.Id == u.RoleId), password);
+            u.LastLogin = DateTime.Now;
+            Commit();
+            return s;
+        }
+
+        public void Logout() { }
+
+        public bool HasUsers() { return Ensure().Users.Count > 0; }
+
+        public void CreateFirstAdmin(string username, string displayName, string password)
+        {
+            Ensure();
+            if (data.Users.Count > 0) throw new InvalidOperationException("An admin already exists.");
+            StaffUser u = new StaffUser();
+            u.Username = username; u.DisplayName = displayName ?? ""; u.RoleId = Permissions.AdminRoleId;
+            StaffRules.CheckUser(u, data.Users, data.Roles, password);
+            u.Id = 1;
+            u.PasswordHash = PasswordHasher.Hash(password);
+            data.Users.Add(u);
+            Commit();
+        }
+
+        public List<StaffUser> ListUsers()
+        {
+            List<StaffUser> list = Ensure().Users.Select(u => u.Clone()).OrderBy(u => u.Username).ToList();
+            StaffRules.Fill(list, data.Roles);
+            return list;
+        }
+
+        public void SaveUser(StaffUser user, string newPassword)
+        {
+            Ensure();
+            StaffRules.CheckUser(user, data.Users, data.Roles, newPassword);
+            if (!string.IsNullOrEmpty(newPassword)) user.PasswordHash = PasswordHasher.Hash(newPassword);
+            user.Updated = DateTime.Now;
+            if (user.Id == 0)
+            {
+                user.Id = data.Users.Count == 0 ? 1 : data.Users.Max(u => u.Id) + 1;
+                data.Users.Add(user.Clone());
+            }
+            else
+            {
+                int i = data.Users.FindIndex(u => u.Id == user.Id);
+                if (i < 0) throw new InvalidOperationException("That user no longer exists.");
+                if (string.IsNullOrEmpty(newPassword)) user.PasswordHash = data.Users[i].PasswordHash;
+                data.Users[i] = user.Clone();
+            }
+            Commit();
+        }
+
+        public void DeleteUser(StaffUser user)
+        {
+            Ensure();
+            StaffRules.CheckDeleteUser(data.Users.First(u => u.Id == user.Id), data.Users);
+            data.Users.RemoveAll(u => u.Id == user.Id);
+            Commit();
+        }
+
+        public List<StaffRole> ListRoles() { return Ensure().Roles.Select(r => r.Clone()).OrderBy(r => r.Id).ToList(); }
+
+        public void SaveRole(StaffRole role)
+        {
+            Ensure();
+            StaffRules.CheckRole(role, data.Roles);
+            if (role.Id == 0)
+            {
+                role.Id = data.Roles.Max(r => r.Id) + 1;
+                data.Roles.Add(role.Clone());
+            }
+            else
+            {
+                int i = data.Roles.FindIndex(r => r.Id == role.Id);
+                if (i < 0) throw new InvalidOperationException("That role no longer exists.");
+                data.Roles[i] = role.Clone();
+            }
+            Commit();
+        }
+
+        public void DeleteRole(StaffRole role)
+        {
+            Ensure();
+            StaffRules.CheckDeleteRole(data.Roles.First(r => r.Id == role.Id), data.Users);
+            data.Roles.RemoveAll(r => r.Id == role.Id);
+            Commit();
+        }
+
         public void Commit()
         {
             string tmp = FilePath + ".tmp";
@@ -170,7 +303,7 @@ namespace BoutiquePOS
     {
         readonly DbConfig cfg;
         readonly string cs;
-        static readonly string Terminal = Environment.MachineName;
+        static string Terminal { get { return Session.TerminalLabel; } }   // "PC / username"
 
         /// <summary>Settings shared by every register; everything else stays on this PC.</summary>
         public static readonly string[] SharedSettings = { "StoreName", "Address", "Phone", "ReceiptFooter", "TaxRatePercent", "BarcodePrefix" };
@@ -262,6 +395,35 @@ namespace BoutiquePOS
                     name VARCHAR(64) NOT NULL PRIMARY KEY,
                     value TEXT NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+            },
+            new string[] // v2 - staff accounts, roles (RBAC), cashier on sales
+            {
+                @"CREATE TABLE IF NOT EXISTS staff_roles (
+                    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(64) NOT NULL,
+                    permissions TEXT NOT NULL,
+                    is_system TINYINT(1) NOT NULL DEFAULT 0,
+                    UNIQUE KEY ux_roles_name (name)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+                "INSERT IGNORE INTO staff_roles (id, name, permissions, is_system) VALUES " +
+                    "(1, 'Admin', '*', 1), " +
+                    "(2, 'Manager', 'sell,discount,refund,sales.view,inventory.view,inventory.edit,stock.adjust,labels.print,settings.manage', 0), " +
+                    "(3, 'Cashier', 'sell,labels.print', 0), " +
+                    "(4, 'Stock clerk', 'inventory.view,inventory.edit,stock.adjust,labels.print', 0)",
+                @"CREATE TABLE IF NOT EXISTS staff (
+                    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(64) NOT NULL,
+                    display_name VARCHAR(100) NOT NULL DEFAULT '',
+                    password_hash VARCHAR(255) NOT NULL,
+                    role_id INT NOT NULL,
+                    active TINYINT(1) NOT NULL DEFAULT 1,
+                    last_login DATETIME NULL,
+                    created DATETIME NOT NULL,
+                    updated DATETIME NOT NULL,
+                    UNIQUE KEY ux_staff_username (username),
+                    KEY ix_staff_role (role_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+                "ALTER TABLE sales ADD COLUMN cashier VARCHAR(100) NOT NULL DEFAULT ''"
             }
         };
 
@@ -462,9 +624,9 @@ namespace BoutiquePOS
             using (OdbcTransaction tx = c.BeginTransaction())
             {
                 Exec(c, tx, "INSERT INTO sales (number, sale_date, subtotal, discount_percent, discount_amount, tax_rate, tax, total, " +
-                    "payment_method, amount_tendered, change_due, refunded, refund_date, note, terminal) VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?)",
+                    "payment_method, amount_tendered, change_due, refunded, refund_date, note, terminal, cashier) VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?)",
                     s.Number, s.Date, s.Subtotal, s.DiscountPercent, s.DiscountAmount, s.TaxRate, s.Tax, s.Total,
-                    s.PaymentMethod, s.AmountTendered, s.Change, s.Note ?? "", Terminal);
+                    s.PaymentMethod, s.AmountTendered, s.Change, s.Note ?? "", Terminal, s.Cashier ?? "");
                 for (int i = 0; i < s.Lines.Count; i++)
                 {
                     SaleLine l = s.Lines[i];
@@ -514,7 +676,7 @@ namespace BoutiquePOS
             }
         }
 
-        const string SaleCols = "number, sale_date, subtotal, discount_percent, discount_amount, tax_rate, tax, total, payment_method, amount_tendered, change_due, refunded, refund_date, note";
+        const string SaleCols = "number, sale_date, subtotal, discount_percent, discount_amount, tax_rate, tax, total, payment_method, amount_tendered, change_due, refunded, refund_date, note, cashier";
 
         List<Sale> QuerySales(string where, object[] args)
         {
@@ -530,7 +692,7 @@ namespace BoutiquePOS
                         Sale s = new Sale();
                         s.Number = I(r, 0); s.Date = T(r, 1); s.Subtotal = D(r, 2); s.DiscountPercent = D(r, 3); s.DiscountAmount = D(r, 4);
                         s.TaxRate = D(r, 5); s.Tax = D(r, 6); s.Total = D(r, 7); s.PaymentMethod = S(r, 8); s.AmountTendered = D(r, 9);
-                        s.Change = D(r, 10); s.Refunded = I(r, 11) != 0; s.RefundDate = r.IsDBNull(12) ? (DateTime?)null : T(r, 12); s.Note = S(r, 13);
+                        s.Change = D(r, 10); s.Refunded = I(r, 11) != 0; s.RefundDate = r.IsDBNull(12) ? (DateTime?)null : T(r, 12); s.Note = S(r, 13); s.Cashier = S(r, 14);
                         map[s.Number] = s;
                         list.Add(s);
                     }
@@ -682,9 +844,9 @@ namespace BoutiquePOS
                 foreach (Sale s in src.Sales)
                 {
                     Exec(c, tx, "INSERT INTO sales (number, sale_date, subtotal, discount_percent, discount_amount, tax_rate, tax, total, " +
-                        "payment_method, amount_tendered, change_due, refunded, refund_date, note, terminal) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "payment_method, amount_tendered, change_due, refunded, refund_date, note, terminal, cashier) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         s.Number, s.Date, s.Subtotal, s.DiscountPercent, s.DiscountAmount, s.TaxRate, s.Tax, s.Total, s.PaymentMethod,
-                        s.AmountTendered, s.Change, s.Refunded, s.RefundDate.HasValue ? (object)s.RefundDate.Value : null, s.Note ?? "", "import");
+                        s.AmountTendered, s.Change, s.Refunded, s.RefundDate.HasValue ? (object)s.RefundDate.Value : null, s.Note ?? "", "import", s.Cashier ?? "");
                     for (int i = 0; i < s.Lines.Count; i++)
                     {
                         SaleLine l = s.Lines[i];
@@ -694,9 +856,134 @@ namespace BoutiquePOS
                 }
                 Exec(c, tx, "UPDATE counters SET value = GREATEST(value, ?) WHERE name = 'item'", src.NextItemNumber - 1);
                 Exec(c, tx, "UPDATE counters SET value = GREATEST(value, ?) WHERE name = 'sale'", src.NextSaleNumber - 1);
+                // Bring the offline file's accounts and roles along if this database has no staff yet.
+                if (src.Users != null && src.Users.Count > 0 && Convert.ToInt32(Scalar(c, tx, "SELECT COUNT(*) FROM staff")) == 0)
+                {
+                    foreach (StaffRole r in src.Roles ?? new List<StaffRole>())
+                        Exec(c, tx, "INSERT INTO staff_roles (id, name, permissions, is_system) VALUES (?,?,?,?) " +
+                            "ON DUPLICATE KEY UPDATE name = VALUES(name), permissions = VALUES(permissions)", r.Id, r.Name, r.Permissions, r.IsSystem);
+                    foreach (StaffUser u in src.Users)
+                        Exec(c, tx, "INSERT INTO staff (id, username, display_name, password_hash, role_id, active, last_login, created, updated) VALUES (?,?,?,?,?,?,?,?,?)",
+                            u.Id, u.Username, u.DisplayName ?? "", u.PasswordHash, u.RoleId, u.Active,
+                            u.LastLogin.HasValue ? (object)u.LastLogin.Value : null, u.Created, u.Updated);
+                }
                 tx.Commit();
             }
             if (src.Settings != null) SaveSettings(src.Settings);
+        }
+
+        // ---------------- staff accounts & roles ----------------
+
+        const string StaffCols = "s.id, s.username, s.display_name, s.password_hash, s.role_id, s.active, s.last_login, s.created, s.updated, COALESCE(r.name, '?')";
+
+        static StaffUser ReadStaff(IDataRecord r)
+        {
+            StaffUser u = new StaffUser();
+            u.Id = I(r, 0); u.Username = S(r, 1); u.DisplayName = S(r, 2); u.PasswordHash = S(r, 3); u.RoleId = I(r, 4);
+            u.Active = I(r, 5) != 0; u.LastLogin = r.IsDBNull(6) ? (DateTime?)null : T(r, 6); u.Created = T(r, 7); u.Updated = T(r, 8);
+            u.RoleName = S(r, 9);
+            return u;
+        }
+
+        public SessionUser Login(string username, string password)
+        {
+            StaffUser u = null;
+            using (OdbcConnection c = Open())
+            {
+                using (OdbcCommand cmd = Cmd(c, null, "SELECT " + StaffCols + " FROM staff s LEFT JOIN staff_roles r ON r.id = s.role_id WHERE s.username = ?",
+                    new object[] { StaffUser.Normalize(username) }))
+                using (OdbcDataReader r = cmd.ExecuteReader())
+                    if (r.Read()) u = ReadStaff(r);
+                StaffRole role = u == null ? null : ListRoles().FirstOrDefault(x => x.Id == u.RoleId);
+                SessionUser s = LocalAuth.Check(u, role, password);
+                Exec(c, null, "UPDATE staff SET last_login = ? WHERE id = ?", DateTime.Now, u.Id);
+                return s;
+            }
+        }
+
+        public void Logout() { }
+
+        public bool HasUsers()
+        {
+            using (OdbcConnection c = Open()) return Convert.ToInt32(Scalar(c, null, "SELECT COUNT(*) FROM staff")) > 0;
+        }
+
+        public void CreateFirstAdmin(string username, string displayName, string password)
+        {
+            if (HasUsers()) throw new InvalidOperationException("An admin already exists.");
+            StaffUser u = new StaffUser();
+            u.Username = username; u.DisplayName = displayName ?? ""; u.RoleId = Permissions.AdminRoleId;
+            SaveUser(u, password);
+        }
+
+        public List<StaffUser> ListUsers()
+        {
+            List<StaffUser> list = new List<StaffUser>();
+            using (OdbcConnection c = Open())
+            using (OdbcCommand cmd = Cmd(c, null, "SELECT " + StaffCols + " FROM staff s LEFT JOIN staff_roles r ON r.id = s.role_id ORDER BY s.username", new object[0]))
+            using (OdbcDataReader r = cmd.ExecuteReader())
+                while (r.Read()) list.Add(ReadStaff(r));
+            return list;
+        }
+
+        public void SaveUser(StaffUser user, string newPassword)
+        {
+            StaffRules.CheckUser(user, ListUsers(), ListRoles(), newPassword);
+            user.Updated = DateTime.Now;
+            using (OdbcConnection c = Open())
+            {
+                if (user.Id == 0)
+                {
+                    user.PasswordHash = PasswordHasher.Hash(newPassword);
+                    Exec(c, null, "INSERT INTO staff (username, display_name, password_hash, role_id, active, created, updated) VALUES (?,?,?,?,?,?,?)",
+                        user.Username, user.DisplayName ?? "", user.PasswordHash, user.RoleId, user.Active, user.Created, user.Updated);
+                    user.Id = Convert.ToInt32(Scalar(c, null, "SELECT LAST_INSERT_ID()"));
+                }
+                else
+                {
+                    Exec(c, null, "UPDATE staff SET username=?, display_name=?, role_id=?, active=?, updated=? WHERE id=?",
+                        user.Username, user.DisplayName ?? "", user.RoleId, user.Active, user.Updated, user.Id);
+                    if (!string.IsNullOrEmpty(newPassword))
+                        Exec(c, null, "UPDATE staff SET password_hash=? WHERE id=?", PasswordHasher.Hash(newPassword), user.Id);
+                }
+            }
+        }
+
+        public void DeleteUser(StaffUser user)
+        {
+            List<StaffUser> all = ListUsers();
+            StaffRules.CheckDeleteUser(all.First(u => u.Id == user.Id), all);
+            using (OdbcConnection c = Open()) Exec(c, null, "DELETE FROM staff WHERE id=?", user.Id);
+        }
+
+        public List<StaffRole> ListRoles()
+        {
+            List<StaffRole> list = new List<StaffRole>();
+            using (OdbcConnection c = Open())
+            using (OdbcCommand cmd = Cmd(c, null, "SELECT id, name, permissions, is_system FROM staff_roles ORDER BY id", new object[0]))
+            using (OdbcDataReader r = cmd.ExecuteReader())
+                while (r.Read()) list.Add(StaffRole.Make(I(r, 0), S(r, 1), S(r, 2), I(r, 3) != 0));
+            return list;
+        }
+
+        public void SaveRole(StaffRole role)
+        {
+            StaffRules.CheckRole(role, ListRoles());
+            using (OdbcConnection c = Open())
+            {
+                if (role.Id == 0)
+                {
+                    Exec(c, null, "INSERT INTO staff_roles (name, permissions, is_system) VALUES (?,?,0)", role.Name, role.Permissions);
+                    role.Id = Convert.ToInt32(Scalar(c, null, "SELECT LAST_INSERT_ID()"));
+                }
+                else Exec(c, null, "UPDATE staff_roles SET name=?, permissions=? WHERE id=? AND is_system=0", role.Name, role.Permissions, role.Id);
+            }
+        }
+
+        public void DeleteRole(StaffRole role)
+        {
+            StaffRules.CheckDeleteRole(ListRoles().First(r => r.Id == role.Id), ListUsers());
+            using (OdbcConnection c = Open()) Exec(c, null, "DELETE FROM staff_roles WHERE id=? AND is_system=0", role.Id);
         }
 
         public void Commit() { }

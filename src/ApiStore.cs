@@ -20,7 +20,8 @@ namespace BoutiquePOS
     public class ApiClient
     {
         readonly string baseUrl;
-        readonly string token;
+        /// <summary>Session token from POST /auth/login (empty until someone signs in).</summary>
+        public string Token = "";
         public int TimeoutMs = 20000;
         static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
@@ -34,7 +35,7 @@ namespace BoutiquePOS
         public ApiClient(string baseUrl, string token)
         {
             this.baseUrl = (baseUrl ?? "").Trim().TrimEnd('/') + "/api/v1/";
-            this.token = token ?? "";
+            Token = token ?? "";
         }
 
         public class Response
@@ -66,7 +67,7 @@ namespace BoutiquePOS
             req.UserAgent = "BoutiquePOS/1.1";
             req.Timeout = TimeoutMs;
             req.ReadWriteTimeout = TimeoutMs;
-            if (token.Length > 0) req.Headers["Authorization"] = "Bearer " + token;
+            if (!string.IsNullOrEmpty(Token)) req.Headers["Authorization"] = "Bearer " + Token;
             if (body != null)
             {
                 byte[] bytes = Encoding.UTF8.GetBytes(Json.Serialize(body));
@@ -115,32 +116,29 @@ namespace BoutiquePOS
         public ApiStore(DbConfig cfg)
         {
             this.cfg = cfg;
-            api = new ApiClient(cfg.ApiUrl, cfg.ApiToken);
+            api = new ApiClient(cfg.ApiUrl, "");   // staff sign in with username + password (see Login)
         }
 
         public string Describe { get { return cfg.Describe(); } }
         public bool IsShared { get { return true; } }
 
-        /// <summary>Checks the server and the token. Returns the register name.</summary>
+        /// <summary>Checks that the address is a Boutique POS web server. Returns its time.</summary>
         public static string TestConnection(DbConfig cfg)
         {
-            ApiClient c = new ApiClient(cfg.ApiUrl, cfg.ApiToken);
+            ApiClient c = new ApiClient(cfg.ApiUrl, "");
             ApiClient.Response ping = c.Send("GET", "ping", null);
             if (ping.Status != 200 || ping.Body == null || Convert.ToString(ping.Body["status"]) != "ok")
                 throw new InvalidOperationException("That address is not a Boutique POS web server (HTTP " + ping.Status + ").");
-            ApiClient.Response me = c.Send("GET", "me", null);
-            if (me.Status == 401) throw new InvalidOperationException("The register token was not accepted. Create a new one with: php artisan pos:register \"Name\"");
-            if (me.Status == 403) throw new InvalidOperationException(me.Message);
-            return Convert.ToString(Data(Check(me))["name"]);
+            return Convert.ToString(ping.Body["server_time"]);
         }
-
         // ---------------- helpers ----------------
 
         static ApiClient.Response Check(ApiClient.Response r)
         {
             if (r.Status >= 200 && r.Status < 300) return r;
-            if (r.Status == 401 || r.Status == 403)
-                throw new InvalidOperationException("The web server refused this register (" + r.Message + "). Check the token in Settings > Change database connection.");
+            if (r.Status == 401)
+                throw new InvalidOperationException("Your sign-in session has ended. Click \"Switch user\" and sign in again.");
+            if (r.Status == 403) throw new PermissionDeniedException(r.Message);
             if (r.Status == 404) throw new KeyNotFoundException(r.Message);
             if (r.Status == 409 || r.Status == 422) throw new InvalidOperationException(r.Message);
             throw new InvalidOperationException("Web server error " + r.Status + ": " + r.Message);
@@ -198,6 +196,7 @@ namespace BoutiquePOS
             s.Refunded = Str(d, "refunded") == "True" || Str(d, "refunded") == "1";
             s.RefundDate = Str(d, "refund_date").Length > 0 ? (DateTime?)Time(d, "refund_date") : null;
             s.Note = Str(d, "note");
+            s.Cashier = Str(d, "cashier");
             s.Lines = new List<SaleLine>();
             IList lines = d.ContainsKey("lines") ? d["lines"] as IList : null;
             if (lines != null)
@@ -409,5 +408,90 @@ namespace BoutiquePOS
         }
 
         public void Commit() { }
+
+        // ---------------- staff sign-in & administration ----------------
+
+        public SessionUser Login(string username, string password)
+        {
+            Dictionary<string, object> b = new Dictionary<string, object>();
+            b["username"] = username ?? ""; b["password"] = password ?? ""; b["device"] = Environment.MachineName;
+            ApiClient.Response r = api.Send("POST", "auth/login", b);
+            if (r.Status == 401 || r.Status == 403 || r.Status == 422) throw new InvalidOperationException(r.Message);
+            if (r.Status == 429) throw new InvalidOperationException("Too many sign-in attempts. Wait a minute and try again.");
+            Check(r);
+            api.Token = Str(r.Body, "token");
+            Dictionary<string, object> u = (Dictionary<string, object>)r.Body["user"];
+            SessionUser s = new SessionUser();
+            s.Id = Int(u, "id"); s.Username = Str(u, "username"); s.DisplayName = Str(u, "display_name"); s.RoleName = Str(u, "role_name");
+            foreach (object p in (IList)u["permissions"]) s.Permissions.Add(Convert.ToString(p));
+            s.IsAdmin = Int(u, "role_id") == Permissions.AdminRoleId;
+            return s;
+        }
+
+        public void Logout()
+        {
+            if (string.IsNullOrEmpty(api.Token)) return;
+            try { api.Send("POST", "auth/logout", null); } catch (Exception) { /* signing out locally is enough */ }
+            api.Token = "";
+        }
+
+        /// <summary>Online, the first Admin is created on the server: php artisan pos:admin &lt;username&gt;.</summary>
+        public bool HasUsers() { return true; }
+
+        public void CreateFirstAdmin(string username, string displayName, string password)
+        {
+            throw new NotSupportedException("Create the first admin on the server: php artisan pos:admin <username>");
+        }
+
+        static StaffUser ToUser(Dictionary<string, object> d)
+        {
+            StaffUser u = new StaffUser();
+            u.Id = Int(d, "id"); u.Username = Str(d, "username"); u.DisplayName = Str(d, "display_name");
+            u.RoleId = Int(d, "role_id"); u.RoleName = Str(d, "role_name");
+            u.Active = Str(d, "active") == "True" || Str(d, "active") == "1";
+            u.LastLogin = Str(d, "last_login").Length > 0 ? (DateTime?)Time(d, "last_login") : null;
+            return u;
+        }
+
+        public List<StaffUser> ListUsers()
+        {
+            List<StaffUser> list = new List<StaffUser>();
+            foreach (Dictionary<string, object> d in (IList)Call("GET", "staff", null).Body["data"]) list.Add(ToUser(d));
+            return list;
+        }
+
+        public void SaveUser(StaffUser user, string newPassword)
+        {
+            Dictionary<string, object> b = new Dictionary<string, object>();
+            b["username"] = user.Username; b["display_name"] = user.DisplayName ?? ""; b["role_id"] = user.RoleId; b["active"] = user.Active;
+            if (!string.IsNullOrEmpty(newPassword)) b["password"] = newPassword;
+            ApiClient.Response r = user.Id == 0 ? Call("POST", "staff", b) : Call("PUT", "staff/" + user.Id, b);
+            user.Id = ToUser(Data(r)).Id;
+        }
+
+        public void DeleteUser(StaffUser user) { Call("DELETE", "staff/" + user.Id, null); }
+
+        public List<StaffRole> ListRoles()
+        {
+            List<StaffRole> list = new List<StaffRole>();
+            foreach (Dictionary<string, object> d in (IList)Call("GET", "roles", null).Body["data"])
+            {
+                List<string> perms = new List<string>();
+                foreach (object p in (IList)d["permissions"]) perms.Add(Convert.ToString(p));
+                bool system = Str(d, "is_system") == "True" || Str(d, "is_system") == "1";
+                list.Add(StaffRole.Make(Int(d, "id"), Str(d, "name"), system ? "*" : Permissions.ToCsv(perms), system));
+            }
+            return list;
+        }
+
+        public void SaveRole(StaffRole role)
+        {
+            Dictionary<string, object> b = new Dictionary<string, object>();
+            b["name"] = role.Name; b["permissions"] = role.PermissionList.ToArray();
+            ApiClient.Response r = role.Id == 0 ? Call("POST", "roles", b) : Call("PUT", "roles/" + role.Id, b);
+            role.Id = Int(Data(r), "id");
+        }
+
+        public void DeleteRole(StaffRole role) { Call("DELETE", "roles/" + role.Id, null); }
     }
 }

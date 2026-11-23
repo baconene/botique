@@ -14,7 +14,7 @@ namespace BoutiquePOS
     {
         readonly DbConfig existing;
         RadioButton rbLocal, rbCloud, rbServer, rbOffline;
-        TextBox txtHost, txtDb, txtUser, txtPass, txtApiUrl, txtApiToken;
+        TextBox txtHost, txtDb, txtUser, txtPass, txtApiUrl;
         NumericUpDown numPort;
         ComboBox cmbSsl;
         Label lblHelp, lblResult, lblDriver;
@@ -73,10 +73,6 @@ namespace BoutiquePOS
             target = apiFields;
             txtApiUrl = Field("Web server address");
             Ui.SetCue(txtApiUrl, "https://pos.yourdomain.com");
-            txtApiToken = Field("Register token");
-            txtApiToken.UseSystemPasswordChar = true;
-            Ui.SetCue(txtApiToken, existing != null && !string.IsNullOrEmpty(existing.ApiTokenProtected)
-                ? "(saved - leave blank to keep)" : "paste the token from: php artisan pos:register");
             root.Controls.Add(apiFields);
 
             lblHelp = new Label();
@@ -220,8 +216,8 @@ namespace BoutiquePOS
                 lblHelp.Text = "Uses the private MySQL database the installer set up on this computer (service \"" + LocalServiceName +
                     "\", port 3307). The installer normally fills this in for you.";
             else if (rbCloud.Checked)
-                lblHelp.Text = "Enter the web server address and this register's token (whoever runs the server creates it with " +
-                    "\"php artisan pos:register\"). Each register needs its own token, and a lost PC can be locked out on the server. " +
+                lblHelp.Text = "Enter the web server address. Everyone then signs in with their own username and password, " +
+                    "which the server checks (the first Admin is created on the server with \"php artisan pos:admin\"). " +
                     "No database port has to be opened on the internet.";
             else if (rbServer.Checked)
                 lblHelp.Text = "Any MySQL 8 server you already run. The database is created automatically if the user has permission; " +
@@ -239,7 +235,6 @@ namespace BoutiquePOS
                 c.Mode = DbConfig.ModeApi;
                 c.Location = DbConfig.LocCloud;
                 c.ApiUrl = txtApiUrl.Text.Trim().TrimEnd('/');
-                if (txtApiToken.Text.Trim().Length > 0) c.ApiToken = txtApiToken.Text.Trim();
                 return c;
             }
             c.Mode = DbConfig.ModeMySql;
@@ -262,7 +257,6 @@ namespace BoutiquePOS
                     return "Enter the web server address, e.g. https://pos.yourdomain.com";
                 bool local = u.IsLoopback || u.Host.EndsWith(".test", StringComparison.OrdinalIgnoreCase);
                 if (u.Scheme != "https" && !local) return "Use an https:// address so sales and the token are encrypted on the internet.";
-                if (c.ApiToken.Length == 0) return "Paste this register's token.";
                 return null;
             }
             if (!c.IsMySql) return null;
@@ -288,7 +282,7 @@ namespace BoutiquePOS
             Cursor = Cursors.WaitCursor;
             try
             {
-                if (c.IsApi) ShowResult("Connected to the web server as register \"" + ApiStore.TestConnection(c) + "\"", true);
+                if (c.IsApi) { ApiStore.TestConnection(c); ShowResult("Connected to the Boutique POS web server. Staff will sign in next.", true); }
                 else ShowResult("Connected - MySQL " + MySqlStore.TestConnection(c), true);
             }
             catch (Exception ex) { ShowResult("Could not connect: " + ex.Message, false); }
@@ -305,7 +299,8 @@ namespace BoutiquePOS
             {
                 if (c.IsApi)
                 {
-                    ShowResult("Connected as register \"" + ApiStore.TestConnection(c) + "\".", true);
+                    ApiStore.TestConnection(c);
+                    ShowResult("Connected to the web server.", true);
                 }
                 else if (c.IsMySql)
                 {

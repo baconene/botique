@@ -8,13 +8,15 @@ namespace BoutiquePOS
     public class MainForm : Form
     {
         readonly TabControl tabs;
-        readonly TabPage tabSell, tabInventory, tabSales, tabLabels, tabSettings;
+        readonly TabPage tabSell, tabInventory, tabSales, tabLabels, tabSettings, tabUsers;
         public readonly PosPanel Pos;
         public readonly InventoryPanel Inventory;
         public readonly SalesPanel Sales;
         public readonly LabelsPanel Labels;
         public readonly SettingsPanel SettingsView;
-        readonly Label lblStore, lblScanner;
+        public readonly UsersPanel UsersView;
+        readonly Label lblStore, lblScanner, lblUser;
+        readonly List<Button> navigationButtons = new List<Button>();
         readonly ToolStripStatusLabel status;
         readonly Timer statusTimer;
         public readonly ScannerService Scanner;
@@ -45,8 +47,18 @@ namespace BoutiquePOS
             lblScanner.Dock = DockStyle.Right; lblScanner.AutoSize = false; lblScanner.Width = Ui.S(460);
             lblScanner.TextAlign = ContentAlignment.MiddleRight;
             lblScanner.ForeColor = Ui.Muted;
+            // Signed-in user + sign out
+            FlowLayoutPanel who = new FlowLayoutPanel();
+            who.Dock = DockStyle.Right; who.AutoSize = true; who.WrapContents = false;
+            who.Padding = new Padding(Ui.S(12), Ui.S(18), 0, 0);
+            lblUser = new Label();
+            lblUser.AutoSize = true; lblUser.ForeColor = Ui.AccentDark; lblUser.Font = new Font("Segoe UI Semibold", 10f);
+            lblUser.Margin = new Padding(0, Ui.S(8), Ui.S(8), 0); lblUser.UseMnemonic = false;
+            who.Controls.Add(lblUser);
+            who.Controls.Add(Ui.MakeButton("Sign out", delegate { SignOut(); }));
             header.Controls.Add(lblStore);
             header.Controls.Add(lblScanner);
+            header.Controls.Add(who);
 
             StatusStrip strip = new StatusStrip();
             strip.BackColor = Color.White;
@@ -71,17 +83,18 @@ namespace BoutiquePOS
             Sales = new SalesPanel(this);
             Labels = new LabelsPanel(this);
             SettingsView = new SettingsPanel(this);
+            UsersView = new UsersPanel(this);
             tabSell = Page("Sell  (F1)", Pos, "New sale", "Scan a barcode or find an item to start checkout.");
             tabInventory = Page("Inventory  (F2)", Inventory, "Inventory", "Your collection, stock levels and product details.");
             tabSales = Page("Sales history  (F3)", Sales, "Sales history", "Review transactions, reprint receipts and manage refunds.");
             tabLabels = Page("Barcode labels  (F4)", Labels, "Barcode labels", "Prepare product labels and preview them before printing.");
             tabSettings = Page("Settings & scanner", SettingsView, "Settings", "Manage your store, printers, scanner and database connection.");
-            tabs.TabPages.AddRange(new TabPage[] { tabSell, tabInventory, tabSales, tabLabels, tabSettings });
+            tabUsers = Page("Users & roles", UsersView, "Users and roles", "Staff accounts, roles and what each role is allowed to do.");
+            tabs.TabPages.AddRange(new TabPage[] { tabSell, tabInventory, tabSales, tabLabels, tabSettings, tabUsers });
             FlowLayoutPanel navigation = new FlowLayoutPanel();
             navigation.Dock = DockStyle.Top; navigation.Height = Ui.S(50);
             navigation.BackColor = Color.White; navigation.Padding = new Padding(Ui.S(24), 0, 0, 0);
             navigation.WrapContents = false;
-            List<Button> navigationButtons = new List<Button>();
             for (int i = 0; i < tabs.TabPages.Count; i++)
             {
                 int index = i;
@@ -90,7 +103,7 @@ namespace BoutiquePOS
                 button.FlatStyle = FlatStyle.Flat; button.FlatAppearance.BorderSize = 0;
                 button.Font = new Font("Segoe UI Semibold", 10f); button.Cursor = Cursors.Hand;
                 button.UseMnemonic = false;
-                button.Click += delegate { tabs.SelectedIndex = index; };
+                button.Click += delegate { if (Allowed(tabs.TabPages[index])) tabs.SelectedIndex = index; };
                 button.Paint += delegate(object sender, PaintEventArgs e)
                 {
                     if (tabs.SelectedIndex == index)
@@ -108,7 +121,11 @@ namespace BoutiquePOS
                     navigationButtons[i].Invalidate();
                 }
             };
-            tabs.SelectedIndexChanged += delegate { updateNavigation(); OnTabChanged(); };
+            tabs.SelectedIndexChanged += delegate
+            {
+                if (!Allowed(tabs.SelectedTab)) { SelectFirstAllowed(); return; }   // role can't open this page
+                updateNavigation(); OnTabChanged();
+            };
             updateNavigation();
 
             Controls.Add(tabs);
@@ -120,7 +137,7 @@ namespace BoutiquePOS
             Scanner.Scanned += OnScanned;
             Application.AddMessageFilter(Scanner);
 
-            Load += delegate { ApplySettings(); Pos.FocusScan(); };
+            Load += delegate { ApplySettings(); ApplySession(); };
             FormClosing += delegate { Application.RemoveMessageFilter(Scanner); Scanner.Dispose(); };
         }
 
@@ -162,6 +179,54 @@ namespace BoutiquePOS
             SettingsView.UpdateScannerStatus();
         }
 
+        // ---------------- roles & permissions ----------------
+
+        bool Allowed(TabPage page)
+        {
+            if (page == tabSell) return Session.Can(Permissions.Sell);
+            if (page == tabInventory) return Session.Can(Permissions.InventoryView) || Session.Can(Permissions.InventoryEdit) || Session.Can(Permissions.StockAdjust);
+            if (page == tabSales) return Session.Can(Permissions.SalesView) || Session.Can(Permissions.Refund);
+            if (page == tabLabels) return Session.Can(Permissions.LabelsPrint);
+            if (page == tabSettings) return Session.Can(Permissions.SettingsManage);
+            if (page == tabUsers) return Session.Can(Permissions.UsersManage);
+            return false;
+        }
+
+        void SelectFirstAllowed()
+        {
+            foreach (TabPage p in tabs.TabPages)
+                if (Allowed(p)) { if (tabs.SelectedTab != p) tabs.SelectedTab = p; else OnTabChanged(); return; }
+        }
+
+        /// <summary>Shows only what the signed-in person's role allows. Called after every sign-in.</summary>
+        public void ApplySession()
+        {
+            SessionUser u = Session.Current;
+            lblUser.Text = u == null ? "" : u.CashierName + "  (" + u.RoleName + ")";
+            for (int i = 0; i < navigationButtons.Count; i++) navigationButtons[i].Visible = Allowed(tabs.TabPages[i]);
+            Pos.ApplyPermissions();
+            Inventory.ApplyPermissions();
+            Sales.ApplyPermissions();
+            UsersView.RefreshLists();
+            SelectFirstAllowed();
+            if (tabs.SelectedTab == tabSell) Pos.FocusScan();
+        }
+
+        /// <summary>Ends the session and asks for the next sign-in (cashier change, lunch break...).</summary>
+        void SignOut()
+        {
+            string who = Session.Current != null ? Session.Current.Username : "";
+            try { DataStore.Logout(); } catch (Exception) { }
+            Hide();
+            using (LoginForm f = new LoginForm(DataStore.Data.Settings.StoreName, DataStore.Store.Describe, false, ""))
+            {
+                if (f.ShowDialog() != DialogResult.OK) { Close(); return; }
+            }
+            Show();
+            ApplySession();
+            SetStatus("Signed in as " + Session.Current.CashierName + (who.Length > 0 && who != Session.Current.Username ? " (was " + who + ")" : "") + ".");
+        }
+
         void OnTabChanged()
         {
             // With a shared database, pick up items/stock changed on other registers.
@@ -174,6 +239,7 @@ namespace BoutiquePOS
             else if (tabs.SelectedTab == tabInventory) Inventory.RefreshGrid();
             else if (tabs.SelectedTab == tabSales) Sales.RefreshList();
             else if (tabs.SelectedTab == tabLabels) Labels.RefreshPreview();
+            else if (tabs.SelectedTab == tabUsers) UsersView.RefreshLists();
         }
 
         void OnScanned(string code, string source)
@@ -198,12 +264,12 @@ namespace BoutiquePOS
         {
             switch (keyData)
             {
-                case Keys.F1: tabs.SelectedTab = tabSell; return true;
-                case Keys.F2: tabs.SelectedTab = tabInventory; return true;
-                case Keys.F3: tabs.SelectedTab = tabSales; return true;
-                case Keys.F4: tabs.SelectedTab = tabLabels; return true;
+                case Keys.F1: if (Allowed(tabSell)) tabs.SelectedTab = tabSell; return true;
+                case Keys.F2: if (Allowed(tabInventory)) tabs.SelectedTab = tabInventory; return true;
+                case Keys.F3: if (Allowed(tabSales)) tabs.SelectedTab = tabSales; return true;
+                case Keys.F4: if (Allowed(tabLabels)) tabs.SelectedTab = tabLabels; return true;
                 case Keys.F12:
-                    if (tabs.SelectedTab == tabSell) { Pos.CompleteSale(); return true; }
+                    if (tabs.SelectedTab == tabSell && Allowed(tabSell)) { Pos.CompleteSale(); return true; }
                     break;
             }
             return base.ProcessCmdKey(ref msg, keyData);
@@ -220,6 +286,7 @@ namespace BoutiquePOS
 
         public void GoToSale(Sale s)
         {
+            if (!Allowed(tabSales)) { SetStatus("Your role can't open sales history.", true); return; }
             tabs.SelectedTab = tabSales;
             Sales.SelectSale(s);
         }
@@ -227,7 +294,7 @@ namespace BoutiquePOS
         public void QueueLabels(IEnumerable<Product> products, bool copiesFromQuantity)
         {
             Labels.AddProducts(products, copiesFromQuantity);
-            tabs.SelectedTab = tabLabels;
+            if (Allowed(tabLabels)) tabs.SelectedTab = tabLabels;
         }
 
         /// <summary>Call after any change to products or sales so every tab shows fresh data.</summary>

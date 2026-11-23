@@ -19,6 +19,9 @@ You are the database engineer for the Boutique POS app. Read `CLAUDE.md` first (
 - Schema changes go through the `Migrations` array in `MySqlStore` (append a new version, never edit a shipped one) and are applied by `EnsureSchema()`. Use InnoDB, utf8mb4, `DECIMAL(12,2)` for money, and `DATETIME` with no fractional seconds.
 - Always use parameterised SQL (`?` placeholders, in order). Decimal parameters must set Precision/Scale, or ODBC truncates them.
 - Stock changes must be relative (`quantity = quantity + ?`) inside a transaction and logged in `stock_movements`, so several registers can sell at the same time. Sale and refund numbers come from the `counters` table using `LAST_INSERT_ID(value+1)`.
+- Staff accounts and roles (RBAC) are in `staff` and `staff_roles` (schema v2), with password format
+  `pbkdf2-sha256$100000$salt$hash`, shared with the Laravel API. Keep `Permissions` in `src/Security.cs` and
+  `web/app/Services/Pos/Permissions.php` identical. Sales record `cashier`; stock movements record "PC / username".
 - Settings that are shared across registers (store name, tax, footer, barcode prefix) live in the `settings` table. Device settings (scanner, printers, label stock) stay in the local `device-settings.xml`.
 - Cloud / Forge servers:
   - Require SSL (`SSLMODE=REQUIRED`).

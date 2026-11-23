@@ -88,7 +88,7 @@ class ProductController extends Controller
             $p->barcode = $v['barcode'] ?? $this->inventory->nextBarcode();
             $p->quantity = $v['quantity'] ?? 0;
             $p->save();
-            $this->inventory->log($p->id, $p->quantity, 'new item', '', $request->user()->name);
+            $this->inventory->log($p->id, $p->quantity, 'new item', '', $request->user()->terminalLabel());
 
             return $p;
         });
@@ -109,7 +109,7 @@ class ProductController extends Controller
         DB::transaction(function () use ($v, $product, $request) {
             $product->fill(collect($v)->except('quantity_delta')->all())->save();
             if (! empty($v['quantity_delta'])) {
-                $this->inventory->change($product->id, (int) $v['quantity_delta'], 'edit', '', $request->user()->name);
+                $this->inventory->change($product->id, (int) $v['quantity_delta'], 'edit', '', $request->user()->terminalLabel());
             }
         });
 
@@ -123,7 +123,7 @@ class ProductController extends Controller
             'delta' => ['required', 'integer', 'min:-99999', 'max:99999', 'not_in:0'],
             'reason' => ['nullable', 'string', 'max:40'],
         ]);
-        DB::transaction(fn () => $this->inventory->change($product->id, (int) $v['delta'], $v['reason'] ?? 'adjustment', '', $request->user()->name));
+        DB::transaction(fn () => $this->inventory->change($product->id, (int) $v['delta'], $v['reason'] ?? 'adjustment', '', $request->user()->terminalLabel()));
 
         return response()->json(['data' => $product->fresh()]);
     }

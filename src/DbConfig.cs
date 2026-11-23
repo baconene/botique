@@ -51,26 +51,17 @@ namespace BoutiquePOS
         public string SslMode { get; set; }     // DISABLED | PREFERRED | REQUIRED | VERIFY_CA | VERIFY_IDENTITY
         public string Driver { get; set; }      // blank = auto-detect
         public string ApiUrl { get; set; }      // Api mode: e.g. https://pos.example.com
-        public string ApiTokenProtected { get; set; }
 
         public DbConfig()
         {
             Mode = ModeXml; Location = LocLocal;
             Host = "localhost"; Port = 3307; Database = "boutique_pos"; User = "boutique";
             PasswordProtected = ""; SslMode = "PREFERRED"; Driver = "";
-            ApiUrl = ""; ApiTokenProtected = "";
+            ApiUrl = "";
         }
 
         public bool IsMySql { get { return Mode == ModeMySql; } }
         public bool IsApi { get { return Mode == ModeApi; } }
-
-        /// <summary>Register token for the web API (DPAPI-encrypted on disk, like the DB password).</summary>
-        [XmlIgnore]
-        public string ApiToken
-        {
-            get { return Unprotect(ApiTokenProtected); }
-            set { ApiTokenProtected = Protect(value); }
-        }
 
         static string Protect(string value)
         {

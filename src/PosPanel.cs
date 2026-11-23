@@ -20,6 +20,8 @@ namespace BoutiquePOS
         CheckBox chkPrint;
         Button btnComplete;
         Sale lastSale;
+        Button btnChangePrice;
+        DataGridViewTextBoxColumn colPrice;
 
         public PosPanel(MainForm main)
         {
@@ -85,7 +87,7 @@ namespace BoutiquePOS
             grid.Columns.Add(Ui.Col("Barcode", "Barcode", 130, true));
             grid.Columns.Add(Ui.Col("Item", "Name", 0, true));
             grid.Columns.Add(Ui.Col("Size / Color", "Variant", 150, true));
-            DataGridViewTextBoxColumn price = Ui.MoneyCol("Price", "UnitPrice", 100, false);
+            DataGridViewTextBoxColumn price = colPrice = Ui.MoneyCol("Price", "UnitPrice", 100, false);
             price.ToolTipText = "Double-click to change the price (markdown)";
             grid.Columns.Add(price);
             DataGridViewTextBoxColumn qty = Ui.NumCol("Qty", "Quantity", 70, false);
@@ -128,7 +130,7 @@ namespace BoutiquePOS
             cartButtons.AutoSize = true; cartButtons.Dock = DockStyle.Fill;
             cartButtons.Controls.Add(Ui.MakeButton("+1 Qty", delegate { ChangeQty(1); }));
             cartButtons.Controls.Add(Ui.MakeButton("-1 Qty", delegate { ChangeQty(-1); }));
-            cartButtons.Controls.Add(Ui.MakeButton("Change price...", delegate { ChangePrice(); }));
+            cartButtons.Controls.Add(btnChangePrice = Ui.MakeButton("Change price...", delegate { ChangePrice(); }));
             cartButtons.Controls.Add(Ui.MakeButton("Remove item", delegate { RemoveSelected(); }));
             cartButtons.Controls.Add(Ui.MakeButton("Clear sale", delegate
             {
@@ -280,6 +282,16 @@ namespace BoutiquePOS
 
         // ---------------- behaviour ----------------
 
+        /// <summary>Discounts and price changes need the "discount" permission.</summary>
+        public void ApplyPermissions()
+        {
+            bool discount = Session.Can(Permissions.Discount);
+            numDiscount.Enabled = discount;
+            if (!discount) numDiscount.Value = 0;
+            btnChangePrice.Enabled = discount;
+            colPrice.ReadOnly = !discount;
+        }
+
         public void FocusScan()
         {
             if (txtScan == null) return;
@@ -339,7 +351,7 @@ namespace BoutiquePOS
             }
 
             Message("Barcode \"" + code + "\" is not in inventory.", true);
-            if (offerCreate && Ui.Confirm(this, "Barcode \"" + code + "\" is not in inventory.\n\nAdd it as a new item now?"))
+            if (offerCreate && Session.Can(Permissions.InventoryEdit) && Ui.Confirm(this, "Barcode \"" + code + "\" is not in inventory.\n\nAdd it as a new item now?"))
             {
                 using (ProductDialog d = new ProductDialog(null, null, code))
                 {

@@ -50,7 +50,8 @@ return [
     |
     */
 
-    'expiration' => null,
+    // POS sign-in sessions end after this many minutes (default 12 hours = one long shift).
+    'expiration' => env('SANCTUM_EXPIRATION', 720),
 
     /*
     |--------------------------------------------------------------------------

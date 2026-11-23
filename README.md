@@ -33,12 +33,22 @@ The first time the app runs (or the installer asks), you choose one of these:
 | Option | Use when |
 |---|---|
 | **On this computer** | One shop. The installer sets up a private MySQL 8.4 database (Windows service `BoutiquePOS-MySQL`, port 3307, local-only) with a nightly backup to `%ProgramData%\BoutiquePOS\Backups`. |
-| **Cloud - our web server (e.g. Forge)** | Several registers or branches share stock and sales over HTTPS. Enter the site address and the register's token (created on the server with `php artisan pos:register "Name"`). No database port is exposed. See `web/docs/API.md`. |
+| **Cloud - our web server (e.g. Forge)** | Several registers or branches share stock and sales over HTTPS. Enter the site address; staff sign in with their own accounts, which the server checks. Create the first Admin on the server with `php artisan pos:admin <username>`. No database port is exposed. See `web/docs/API.md`. |
 | **MySQL server (direct connection)** | You already run MySQL 8 on this PC or the shop network, or online with SSL REQUIRED and access limited to the shop's IP. |
 | **Offline file** | One register, no database server. You can move the data into a database later; the wizard offers to copy it. |
 
 Change it any time in **Settings & Scanner > Change database connection**. Connection details are kept in
 `%ProgramData%\BoutiquePOS\db.config`, with the password encrypted by Windows (DPAPI).
+
+## Staff accounts and roles
+Everyone signs in with their own username and password, in every storage mode.
+- **First run (this computer, MySQL or offline file):** the app asks you to create the **Admin** account.
+  **Web server:** create it on the server with `php artisan pos:admin <username>`.
+- **Users & roles** tab (Admins only): add staff, reset passwords, disable accounts, and create or edit roles by ticking what each one may do.
+  Built-in roles are Admin (everything), Manager (everything except users), Cashier (sell, labels) and Stock clerk (inventory, stock, labels).
+- Pages and buttons a role can't use are hidden or greyed out. The data layer and the web server refuse the action too.
+- Discounts and price changes need the "Discounts and price changes" permission. Receipts and Sales history show the cashier.
+- **Sign out** (top right) ends the session for a cashier change. One active Admin always remains.
 
 ## Building the installer (for selling)
 ```powershell

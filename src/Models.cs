@@ -94,8 +94,10 @@ namespace BoutiquePOS
         public bool Refunded { get; set; }
         public DateTime? RefundDate { get; set; }
         public string Note { get; set; }
+        /// <summary>Staff member who rang up the sale (display name).</summary>
+        public string Cashier { get; set; }
 
-        public Sale() { Lines = new List<SaleLine>(); PaymentMethod = "Cash"; Note = ""; Date = DateTime.Now; }
+        public Sale() { Lines = new List<SaleLine>(); PaymentMethod = "Cash"; Note = ""; Cashier = ""; Date = DateTime.Now; }
 
         [XmlIgnore] public string Code { get { return DataStore.SaleCode(Number); } }
         [XmlIgnore] public int ItemCount { get { int n = 0; foreach (SaleLine l in Lines) n += l.Quantity; return n; } }
@@ -148,11 +150,16 @@ namespace BoutiquePOS
         public StoreSettings Settings { get; set; }
         public int NextItemNumber { get; set; }
         public int NextSaleNumber { get; set; }
+        /// <summary>Offline mode only; MySQL/API keep staff in the database.</summary>
+        public List<StaffUser> Users { get; set; }
+        public List<StaffRole> Roles { get; set; }
 
         public AppData()
         {
             Products = new List<Product>();
             Sales = new List<Sale>();
+            Users = new List<StaffUser>();
+            Roles = new List<StaffRole>();
             Settings = new StoreSettings();
             NextItemNumber = 1;
             NextSaleNumber = 1001;

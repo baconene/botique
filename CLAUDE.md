@@ -21,6 +21,11 @@ receipts, and Bluetooth barcode scanner support (HID keyboard mode and SPP seria
   With `ApiStore`, the server assigns sale numbers and totals, and `InsertSale` copies them back onto the `Sale`.
 - Data folder: `%ProgramData%\BoutiquePOS` when installed; `bin\Data` for dev builds (`bin\portable.txt`).
 - Money is `decimal`; round with `SaleMath.R()` (2 dp, away from zero).
+- **RBAC everywhere** (`src/Security.cs`): staff sign in at start (`LoginForm`); `Session.Current` holds the permissions.
+  Every `DataStore` write calls `Session.Require(...)`, and screens call `ApplyPermissions()`. Permission keys, default roles
+  and the password hash format (`pbkdf2-sha256$100000$salt$hash`) MUST match `web/app/Services/Pos/Permissions.php` and
+  `PasswordHasher.php`. Accounts are in the `staff` / `staff_roles` tables (POS schema v2), or in the XML file when offline.
+  Built-in Admin role id 1 = "*". Rules: at least one active Admin, and nobody can disable or delete themselves.
 
 ## Layout
 - `src/Program.cs` — entry point, DPI awareness, `--selftest <outdir>` mode used by QA.
@@ -42,7 +47,7 @@ receipts, and Bluetooth barcode scanner support (HID keyboard mode and SPP seria
 .\bin\BoutiquePOS.exe
 .\bin\BoutiquePOS.exe --selftest .\selftest-out   # writes report.txt + PNG screenshots, exit code 0 = pass
 .\bin\BoutiquePOS.exe --dbtest localhost 3306 boutique_test user pass   # MySQL store tests (throwaway DB!)
-.\bin\BoutiquePOS.exe --apitest http://127.0.0.1:8123 <register token> # web API tests (test server!)
+.\bin\BoutiquePOS.exe --apitest http://127.0.0.1:8123 <adminUser> <adminPassword> # web API tests (test server!)
 .\build-installer.ps1       # -> dist\BoutiquePOS-Setup-<ver>.exe (needs Inno Setup 6; downloads prerequisites once)
 ```
 Version number lives in `src/AssemblyInfo.cs` and `installer/BoutiquePOS.iss` (keep both in sync).
@@ -54,8 +59,8 @@ Windows app, and none of the C# 5 rules above apply to it. Run commands from ins
 php artisan serve      # http://127.0.0.1:8000  (or use Herd: http://web.test after `herd link`)
 php artisan test
 ```
-It hosts the **POS API v1** (`web/routes/api.php`, reference in `web/docs/API.md`): register tokens (Sanctum,
-`php artisan pos:register`), products, sales with server-side totals and retry protection (`client_ref`), refunds,
+It hosts the **POS API v1** (`web/routes/api.php`, reference in `web/docs/API.md`): staff sign-in (`POST /auth/login`, expiring
+Sanctum sessions, first admin via `php artisan pos:admin`), role checks on every route (`pos.can:` middleware), products, sales with server-side totals and retry protection (`client_ref`), refunds,
 shared settings, and reports. Business logic is in `web/app/Services/Pos/`, and tests are in `web/tests/Feature/Pos/`.
 Money math (`Money::saleTotals`) must stay identical to `SaleMath.Compute` in the Windows app.
 

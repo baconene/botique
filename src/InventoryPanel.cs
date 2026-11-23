@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -19,6 +19,8 @@ namespace BoutiquePOS
         Label lblSummary;
         Label metricItems, metricUnits, metricValue, metricLow;
         List<Product> view = new List<Product>();
+        Button btnAdd, btnEdit, btnVariant, btnAdjust, btnLabels;
+        ToolStripItem miImport, miDelete;
 
         public InventoryPanel(MainForm main)
         {
@@ -72,17 +74,17 @@ namespace BoutiquePOS
             actions.AutoSize = true; actions.Dock = DockStyle.Fill;
             actions.Padding = new Padding(Ui.S(8), Ui.S(2), Ui.S(8), Ui.S(8));
             actions.BackColor = Color.White;
-            actions.Controls.Add(Ui.MakeButton("+ Add item", delegate { AddItem(null); }, true));
-            actions.Controls.Add(Ui.MakeButton("Edit", delegate { EditSelected(); }));
-            actions.Controls.Add(Ui.MakeButton("Add variant", delegate { AddVariant(); }));
-            actions.Controls.Add(Ui.MakeButton("Adjust stock...", delegate { AdjustStock(); }));
-            actions.Controls.Add(Ui.MakeButton("Print labels", delegate { PrintLabels(); }));
+            actions.Controls.Add(btnAdd = Ui.MakeButton("+ Add item", delegate { AddItem(null); }, true));
+            actions.Controls.Add(btnEdit = Ui.MakeButton("Edit", delegate { EditSelected(); }));
+            actions.Controls.Add(btnVariant = Ui.MakeButton("Add variant", delegate { AddVariant(); }));
+            actions.Controls.Add(btnAdjust = Ui.MakeButton("Adjust stock...", delegate { AdjustStock(); }));
+            actions.Controls.Add(btnLabels = Ui.MakeButton("Print labels", delegate { PrintLabels(); }));
             ContextMenuStrip moreMenu = new ContextMenuStrip();
             moreMenu.Font = Font;
-            moreMenu.Items.Add("Import CSV...", null, delegate { ImportCsv(); });
+            miImport = moreMenu.Items.Add("Import CSV...", null, delegate { ImportCsv(); });
             moreMenu.Items.Add("Export CSV...", null, delegate { ExportCsv(); });
             moreMenu.Items.Add(new ToolStripSeparator());
-            moreMenu.Items.Add("Delete selected items...", null, delegate { DeleteSelected(); });
+            miDelete = moreMenu.Items.Add("Delete selected items...", null, delegate { DeleteSelected(); });
             Button more = Ui.MakeButton("More actions ▾", null);
             more.Click += delegate { moreMenu.Show(more, new Point(0, more.Height)); };
             Disposed += delegate { moreMenu.Dispose(); };
@@ -137,6 +139,17 @@ namespace BoutiquePOS
             value.Font = new Font("Segoe UI Semibold", 21f); value.AutoEllipsis = true;
             card.Controls.Add(value); card.Controls.Add(title); host.Controls.Add(card, column, 0);
             return value;
+        }
+
+        /// <summary>Enables only what the signed-in role allows.</summary>
+        public void ApplyPermissions()
+        {
+            bool edit = Session.Can(Permissions.InventoryEdit), adjust = Session.Can(Permissions.StockAdjust);
+            btnAdd.Enabled = btnEdit.Enabled = btnVariant.Enabled = miImport.Enabled = miDelete.Enabled = edit;
+            btnAdjust.Enabled = adjust;
+            btnLabels.Enabled = Session.Can(Permissions.LabelsPrint);
+            chkReceive.Enabled = adjust;
+            if (!adjust) chkReceive.Checked = false;
         }
 
         public void RefreshGrid()
@@ -227,7 +240,7 @@ namespace BoutiquePOS
                 return;
             }
             main.SetStatus("Barcode " + code + " is not in inventory.", true);
-            if (Ui.Confirm(this, "Barcode \"" + code + "\" is not in inventory.\n\nCreate a new item with this barcode?"))
+            if (Session.Can(Permissions.InventoryEdit) && Ui.Confirm(this, "Barcode \"" + code + "\" is not in inventory.\n\nCreate a new item with this barcode?"))
                 AddItem(code);
         }
 
@@ -242,6 +255,7 @@ namespace BoutiquePOS
 
         void EditSelected()
         {
+            if (!Session.Can(Permissions.InventoryEdit)) return;
             Product p = Current();
             if (p == null) return;
             using (ProductDialog d = new ProductDialog(p, null, null))
@@ -250,6 +264,7 @@ namespace BoutiquePOS
 
         void AddVariant()
         {
+            if (!Session.Can(Permissions.InventoryEdit)) return;
             Product p = Current();
             if (p == null) { Ui.Error(this, "Select the item you want to copy, then click Add variant."); return; }
             using (ProductDialog d = new ProductDialog(null, p, null))
@@ -258,6 +273,7 @@ namespace BoutiquePOS
 
         void AdjustStock()
         {
+            if (!Session.Can(Permissions.StockAdjust)) return;
             Product p = Current();
             if (p == null) return;
             string s = Ui.Prompt(this, "Adjust stock",
@@ -278,6 +294,7 @@ namespace BoutiquePOS
 
         void DeleteSelected()
         {
+            if (!Session.Can(Permissions.InventoryEdit)) return;
             List<Product> sel = SelectedProducts();
             if (sel.Count == 0) return;
             string what = sel.Count == 1 ? "\"" + sel[0].Name + " " + sel[0].Variant + "\"" : sel.Count + " items";
@@ -323,6 +340,7 @@ namespace BoutiquePOS
 
         void ImportCsv()
         {
+            if (!Session.Can(Permissions.InventoryEdit)) return;
             using (OpenFileDialog d = new OpenFileDialog())
             {
                 d.Filter = "CSV file (*.csv)|*.csv|All files|*.*";
