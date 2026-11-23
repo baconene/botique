@@ -1,0 +1,26 @@
+# Build output (rebuild with build.ps1 / build-installer.ps1)
+/bin/
+/dist/
+*.exe
+*.pdb
+
+# Installer prerequisites (downloaded by installer/get-prereqs.ps1)
+/installer/redist/
+
+# Self-test output and local data (may contain customer data or db.config)
+/selftest*/
+selftest-out/
+**/Data/
+db.config
+device-settings.xml
+setup-choice.txt
+error.log
+
+# Local Claude Code settings (agents in .claude/agents ARE committed)
+.claude/settings.local.json
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vs/
+.vscode/
