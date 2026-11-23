@@ -22,6 +22,10 @@ class RequirePosPermission
         }
         $names = implode(' or ', array_map(fn ($p) => Permissions::ALL[$p] ?? $p, $permissions));
 
-        return response()->json(['message' => "Your role does not allow this ({$names})."], 403);
+        $message = "Your role does not allow this ({$names}).";
+        if ($request->expectsJson()) {
+            return response()->json(['message' => $message], 403);
+        }
+        abort(403, $message);
     }
 }

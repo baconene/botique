@@ -4,6 +4,8 @@ namespace App\Models\Pos;
 
 use App\Services\Pos\Permissions;
 use DateTimeInterface;
+use Illuminate\Auth\Authenticatable;
+use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Laravel\Sanctum\HasApiTokens;
@@ -12,9 +14,9 @@ use Laravel\Sanctum\HasApiTokens;
  * A POS user (cashier, manager, admin...) in the POS-owned `staff` table. Logs in with
  * POST /api/v1/auth/login and gets a session token that expires automatically.
  */
-class Staff extends Model
+class Staff extends Model implements AuthenticatableContract
 {
-    use HasApiTokens;
+    use Authenticatable, HasApiTokens;
 
     protected $table = 'staff';
 
@@ -35,6 +37,18 @@ class Staff extends Model
             'created' => 'datetime',
             'updated' => 'datetime',
         ];
+    }
+
+    /** Web sign-in checks passwords with PasswordHasher, never Laravel's bcrypt hasher. */
+    public function getAuthPassword()
+    {
+        return $this->password_hash;
+    }
+
+    /** The staff table has no remember-me column. */
+    public function getRememberTokenName()
+    {
+        return '';
     }
 
     public function role(): BelongsTo
@@ -67,7 +81,7 @@ class Staff extends Model
     /** "<device> / <username>", recorded on sales and stock movements. */
     public function terminalLabel(): string
     {
-        $device = $this->currentAccessToken()?->name ?? 'API';
+        $device = $this->currentAccessToken()?->name ?? 'Web POS';
 
         return substr($device.' / '.$this->username, 0, 64);
     }

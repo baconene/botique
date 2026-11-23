@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'pos.staff' => \App\Http\Middleware\EnsurePosStaff::class,
             'pos.can' => \App\Http\Middleware\RequirePosPermission::class,
+            'staff.session' => \App\Http\Middleware\EnsureStaffSession::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

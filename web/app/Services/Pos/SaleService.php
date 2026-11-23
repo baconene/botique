@@ -16,6 +16,27 @@ class SaleService
 {
     public function __construct(private Inventory $inventory, private PosSettings $settings) {}
 
+    /** Validation for a new sale - used by the register API and the web POS. */
+    public static function rules(): array
+    {
+        return [
+            'client_ref' => ['required', 'string', 'max:64'],
+            'lines' => ['required', 'array', 'min:1', 'max:500'],
+            'lines.*.product_id' => ['nullable', 'regex:/^[0-9a-f]{32}$/'],
+            'lines.*.barcode' => ['nullable', 'string', 'max:64'],
+            'lines.*.name' => ['nullable', 'string', 'max:200'],
+            'lines.*.size' => ['nullable', 'string', 'max:40'],
+            'lines.*.color' => ['nullable', 'string', 'max:60'],
+            'lines.*.unit_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999'],
+            'lines.*.quantity' => ['required', 'integer', 'min:1', 'max:999'],
+            'discount_percent' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:100'],
+            'payment_method' => ['required', 'in:Cash,Card,Other'],
+            'amount_tendered' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999'],
+            'note' => ['nullable', 'string', 'max:500'],
+            'sale_date' => ['nullable', 'date', 'before_or_equal:now'],
+        ];
+    }
+
     /**
      * Records a sale: totals are recomputed on the server, stock is decremented, and the
      * client_ref makes retries safe (same ref => same sale, no double charge or double stock change).

@@ -1,0 +1,162 @@
+<?php
+
+namespace Tests\Feature\Web;
+
+use App\Models\Pos\Product;
+use App\Models\Pos\Staff;
+use App\Services\Pos\PasswordHasher;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class StoreAndBackOfficeTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function staff(string $username, int $roleId, bool $active = true): Staff
+    {
+        $s = new Staff(['username' => $username, 'display_name' => ucfirst($username), 'role_id' => $roleId, 'active' => $active]);
+        $s->password_hash = PasswordHasher::hash('secret123');
+        $s->save();
+
+        return $s;
+    }
+
+    private function product(array $over = []): Product
+    {
+        $p = new Product(array_merge(['barcode' => 'BTQ'.random_int(100000, 999999), 'name' => 'Linen Wrap Dress', 'brand' => 'Maison Lune',
+            'category' => 'Dresses', 'size' => 'M', 'color' => 'Sage', 'price' => '89.00', 'quantity' => 5], $over));
+        $p->id = Product::newId();
+        $p->save();
+
+        return $p;
+    }
+
+    // ---------------- storefront ----------------
+
+    public function test_storefront_shows_live_stock_grouped_by_style(): void
+    {
+        $m = $this->product();
+        $this->product(['size' => 'S', 'quantity' => 2]);
+        $this->product(['name' => 'Sold Out Tee', 'category' => 'Tops', 'quantity' => 0]);
+
+        $this->get('/')->assertOk()->assertSee('Linen Wrap Dress')->assertSee('Shop by category')->assertDontSee('Sold Out Tee')
+            ->assertSee('Staff login');
+        $this->get('/shop?category=Dresses')->assertOk()->assertSee('Linen Wrap Dress')->assertDontSee('Sold Out Tee');
+        $this->get('/shop?q=sage')->assertOk()->assertSee('Linen Wrap Dress');
+        $this->get('/shop/item/'.$m->id)->assertOk()->assertSee('Maison Lune')->assertSee('In stock in our boutique')->assertSee('₱89.00');
+    }
+
+    public function test_storefront_works_with_an_empty_catalogue(): void
+    {
+        $this->get('/')->assertOk()->assertSee('The rails are being restocked');
+    }
+
+    public function test_demo_data_command_only_fills_an_empty_catalogue(): void
+    {
+        $this->artisan('pos:demo-data')->assertSuccessful();
+        $count = Product::count();
+        $this->assertGreaterThan(30, $count);
+        $this->artisan('pos:demo-data')->assertSuccessful();
+        $this->assertSame($count, Product::count());
+        $this->get('/')->assertOk()->assertSee('Featured pieces')->assertDontSee('The rails are being restocked');
+        $this->get('/shop')->assertOk()->assertSee('Cashmere Crew Sweater')->assertSee('14 styles');   // colorways of one style group together
+    }
+
+    // ---------------- login ----------------
+
+    public function test_staff_login_and_logout(): void
+    {
+        $this->staff('owner', 1);
+        $this->get('/admin')->assertRedirect('/login');
+        $this->post('/login', ['username' => 'owner', 'password' => 'nope'])->assertSessionHasErrors('username');
+        $this->post('/login', ['username' => 'OWNER', 'password' => 'secret123'])->assertRedirect('/admin');
+        $this->assertAuthenticated('staff');
+        $this->get('/admin')->assertOk()->assertSee('Point of sale')->assertSee('Online inventory');
+        $this->post('/logout')->assertRedirect('/');
+        $this->assertGuest('staff');
+    }
+
+    public function test_disabled_staff_cannot_sign_in_and_is_kicked_out(): void
+    {
+        $this->staff('ex', 3, false);
+        $this->post('/login', ['username' => 'ex', 'password' => 'secret123'])->assertSessionHasErrors('username');
+
+        $s = $this->staff('maria', 3);
+        $this->actingAs($s, 'staff')->get('/admin')->assertOk();
+        $s->forceFill(['active' => false])->save();
+        $this->get('/admin')->assertRedirect('/login');
+    }
+
+    // ---------------- roles ----------------
+
+    public function test_cashier_sees_pos_but_not_inventory(): void
+    {
+        $this->actingAs($this->staff('maria', 3), 'staff');
+        $this->get('/admin')->assertOk()->assertSee('Point of sale')->assertDontSee('Online inventory');
+        $this->get('/admin/pos')->assertOk();
+        $this->get('/admin/inventory')->assertForbidden();
+        $this->get('/admin/inventory/create')->assertForbidden();
+    }
+
+    public function test_stock_clerk_manages_inventory_but_cannot_sell(): void
+    {
+        $p = $this->product(['quantity' => 3]);
+        $this->actingAs($this->staff('sam', 4), 'staff');
+        $this->get('/admin/pos')->assertForbidden();
+        $this->get('/admin/inventory')->assertOk()->assertSee('Linen Wrap Dress');
+
+        $this->post('/admin/inventory', ['name' => 'Silk Cami Top', 'category' => 'Tops', 'size' => 'S', 'color' => 'Ivory',
+            'price' => '54.00', 'cost' => '', 'quantity' => 4, 'reorder_level' => 2])->assertRedirect();
+        $new = Product::firstWhere('name', 'Silk Cami Top');
+        $this->assertNotNull($new);
+        $this->assertSame('BTQ000001', $new->barcode);
+        $this->assertSame(4, $new->quantity);
+
+        $this->put("/admin/inventory/{$p->id}", ['name' => 'Linen Wrap Dress', 'barcode' => $p->barcode, 'price' => '79.50',
+            'reorder_level' => 2, 'quantity_delta' => 2])->assertRedirect();
+        $this->assertSame('79.50', $p->fresh()->price);
+        $this->assertSame(5, $p->fresh()->quantity);
+
+        $this->post("/admin/inventory/{$p->id}/adjust", ['delta' => -1, 'reason' => 'damaged'])->assertRedirect();
+        $this->assertSame(4, $p->fresh()->quantity);
+        $this->assertDatabaseHas('stock_movements', ['product_id' => $p->id, 'change_qty' => -1, 'terminal' => 'Web POS / sam']);
+
+        $this->delete("/admin/inventory/{$new->id}")->assertRedirect();
+        $this->assertNull(Product::find($new->id));
+    }
+
+    // ---------------- web POS ----------------
+
+    public function test_web_pos_search_sale_and_receipt(): void
+    {
+        $p = $this->product(['price' => '110.00', 'quantity' => 10]);
+        $this->actingAs($this->staff('owner', 1), 'staff');
+
+        $this->getJson('/admin/pos/search?q='.$p->barcode)->assertOk()->assertJsonPath('exact', true)->assertJsonPath('data.0.id', $p->id);
+        $this->getJson('/admin/pos/search?q=linen')->assertOk()->assertJsonPath('exact', false)->assertJsonCount(1, 'data');
+
+        $r = $this->postJson('/admin/pos/sale', [
+            'client_ref' => 'web-1', 'payment_method' => 'Cash', 'amount_tendered' => '250.00', 'discount_percent' => 10,
+            'lines' => [['product_id' => $p->id, 'quantity' => 2, 'unit_price' => '110.00']],
+        ])->assertCreated()->assertJsonPath('data.total', '211.86')->assertJsonPath('data.change_due', '38.14')
+            ->assertJsonPath('data.terminal', 'Web POS / owner')->assertJsonPath('data.cashier', 'Owner');
+        $this->assertSame(8, $p->fresh()->quantity);
+
+        $this->get($r->json('receipt_url'))->assertOk()->assertSee('R001001')->assertSee('Cashier: Owner')->assertSee('211.86');
+        // Retry with the same client_ref does not charge twice
+        $this->postJson('/admin/pos/sale', ['client_ref' => 'web-1', 'payment_method' => 'Card',
+            'lines' => [['product_id' => $p->id, 'quantity' => 2]]])->assertOk();
+        $this->assertSame(8, $p->fresh()->quantity);
+    }
+
+    public function test_web_pos_blocks_discounts_for_cashiers(): void
+    {
+        $p = $this->product();
+        $this->actingAs($this->staff('maria', 3), 'staff');
+        $this->get('/admin/pos')->assertOk()->assertSee('Your role does not allow discounts');
+        $this->postJson('/admin/pos/sale', ['client_ref' => 'x', 'payment_method' => 'Card', 'discount_percent' => 15,
+            'lines' => [['product_id' => $p->id, 'quantity' => 1]]])->assertForbidden();
+        $this->postJson('/admin/pos/sale', ['client_ref' => 'y', 'payment_method' => 'Card',
+            'lines' => [['product_id' => $p->id, 'quantity' => 1]]])->assertCreated();
+    }
+}

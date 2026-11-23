@@ -113,10 +113,43 @@ connection. Enter the site address (`https://...`) then click **Test connection*
 items (`updated_since`) when the Sell, Inventory or Labels tab is opened. If a sale request times out, the app resends it
 with the same `client_ref`, so it is never recorded twice.
 
+## Website: storefront and back office
+The same Laravel app serves a public demo storefront and a staff back office (no Node/npm build: plain CSS/JS in `public/`).
+
+| URL | Who | What |
+|---|---|---|
+| `/`, `/shop`, `/shop/item/{id}` | Everyone | Demo clothing store. Shows live stock from the POS, grouped into styles (sizes and colors). Sold-out items are hidden from the home page. |
+| `/login` | Staff | Sign in with the same POS account (PBKDF2 password, roles). |
+| `/admin` | Any role | Dashboard: shortcuts, today's sales (`sales.view`), restock list. |
+| `/admin/pos` | `sell` | Browser POS: scan or search, cart, discount (`discount`), cash/card/other, printable receipt. Uses the same `SaleService` as the registers. |
+| `/admin/inventory` | `inventory.view` / `inventory.edit` / `stock.adjust` | Online inventory: search, add, add variant, edit, adjust stock, delete. |
+
+Fill an empty catalogue with sample items for a demo: `php artisan pos:demo-data` (marked "Demo item" in Notes; refuses
+if items exist unless you pass `--force`). Currency symbol: `POS_CURRENCY_SYMBOL` (default ₱). Hero text: `POS_STORE_TAGLINE`.
+
 ## Deploying on Forge
-1. Create the site, point it at this `web/` folder's repository, and enable SSL (Let's Encrypt).
-2. In the site's `.env`, set `DB_CONNECTION=mysql`, the DB credentials, `APP_ENV=production`,
-   `APP_DEBUG=false`, and `APP_TIMEZONE` to the shop's timezone (e.g. `Asia/Manila`).
-3. Add `php artisan migrate --force` to the deploy script.
-4. SSH in and run `php artisan pos:admin <username>` once to create the first Admin.
-5. With the API in place, MySQL port 3306 doesn't need to be open to the internet.
+The repository holds the Windows app at its root and the Laravel app in `web/`. Set the site up like this
+(if you don't, every page shows **"No input file specified."**):
+
+1. **PHP version: 8.4 or newer** (Site > Settings). The locked packages need PHP 8.4.1 or later.
+2. **Directories** (Site > Settings > Directories):
+   - Root directory: `/web` (so the app path is `.../current/web`)
+   - Web directory: `/public` (this is relative to the root directory, so nginx serves `.../current/web/public`)
+3. **Deploy script.** `$FORGE_SITE_PATH` already includes the root directory (`.../current/web`), so don't add `/web`
+   again. The `.env` file Forge edits is in the site's top folder:
+   ```bash
+   cd $FORGE_SITE_PATH
+   ln -sfn /home/forge/<your-site>/.env .env
+   $FORGE_COMPOSER install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+   $FORGE_PHP artisan migrate --force
+   $FORGE_PHP artisan optimize
+   ```
+   Keep any lines Forge added for zero-downtime releases (creating and activating the release, restarting PHP-FPM).
+4. **Environment** (Site > Environment): `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://<domain>`,
+   `APP_TIMEZONE=Asia/Manila` (the shop's timezone), and `DB_CONNECTION=mysql` with Forge's database credentials. If
+   `APP_KEY` is empty, run `php artisan key:generate` in `current/web`.
+5. **Deploy now**, then over SSH in `current/web`: `php artisan pos:admin <username>` (first Admin) and, for a demo,
+   `php artisan pos:demo-data`.
+6. Check: `https://<domain>/api/v1/ping` returns `{"status":"ok"}`, `/` shows the storefront, and `/login` opens
+   the staff sign-in.
+7. With the API in place, MySQL port 3306 doesn't need to be open to the internet.

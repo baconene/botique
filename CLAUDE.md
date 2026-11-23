@@ -64,6 +64,12 @@ Sanctum sessions, first admin via `php artisan pos:admin`), role checks on every
 shared settings, and reports. Business logic is in `web/app/Services/Pos/`, and tests are in `web/tests/Feature/Pos/`.
 Money math (`Money::saleTotals`) must stay identical to `SaleMath.Compute` in the Windows app.
 
+The same app serves the **public storefront** (`/`, `/shop`, live stock grouped by `App\Services\Pos\Catalog`) and the
+**staff back office** (`/login`, `/admin`: dashboard, browser POS, online inventory). Back-office pages use the session guard
+`staff` (the `Staff` model is Authenticatable, but passwords are checked with `PasswordHasher`) plus `staff.session` and the
+`pos.can:` middleware. Item writes go through `ProductService` and sales through `SaleService`, shared with the API. Views are
+Blade, with plain CSS/JS in `web/public` (no npm build). Demo stock: `php artisan pos:demo-data`.
+
 Local dev uses SQLite (`web/.env`). On Forge, point `.env` at the server's MySQL. The POS tables (`products`, `sales`,
 `sale_lines`, `stock_movements`, `counters`, `settings`, `schema_info`) are owned by `MySqlStore` migrations (see the
 `database-engineer` agent). Laravel's `create_pos_tables` migration only creates them if they're missing and must never

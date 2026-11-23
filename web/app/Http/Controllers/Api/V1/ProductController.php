@@ -4,18 +4,15 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Pos\Product;
-use App\Services\Pos\Inventory;
+use App\Services\Pos\ProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
 {
-    private const BARCODE = ['string', 'max:64', 'regex:/^[\x20-\x7E]+$/'];   // Code 128B: printable ASCII
-
-    public function __construct(private Inventory $inventory) {}
+    public function __construct(private ProductService $products) {}
 
     /**
      * GET /products?q=&category=&low_stock=1&updated_since=&per_page=
@@ -74,101 +71,31 @@ class ProductController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $v = $request->validate([
-            'id' => ['nullable', 'regex:/^[0-9a-f]{32}$/', 'unique:products,id'],
-            'barcode' => array_merge(['nullable'], self::BARCODE, ['unique:products,barcode']),
-        ] + $this->fieldRules(true) + [
-            'quantity' => ['nullable', 'integer', 'min:-99999', 'max:999999'],
-        ]);
-        $v = $this->clean($v);
+        $v = $request->validate(ProductService::rules(null));
 
-        $product = DB::transaction(function () use ($v, $request) {
-            $p = new Product($v);
-            $p->id = $v['id'] ?? Product::newId();
-            $p->barcode = $v['barcode'] ?? $this->inventory->nextBarcode();
-            $p->quantity = $v['quantity'] ?? 0;
-            $p->save();
-            $this->inventory->log($p->id, $p->quantity, 'new item', '', $request->user()->terminalLabel());
-
-            return $p;
-        });
-
-        return response()->json(['data' => $product->fresh()], 201);
+        return response()->json(['data' => $this->products->create($v, $request->user())], 201);
     }
 
     /** PUT /products/{id}. Stock is changed with quantity_delta (relative), never overwritten. */
     public function update(Request $request, Product $product): JsonResponse
     {
-        $v = $request->validate([
-            'barcode' => array_merge(['sometimes'], self::BARCODE, [Rule::unique('products', 'barcode')->ignore($product->id)]),
-        ] + $this->fieldRules(false) + [
-            'quantity_delta' => ['nullable', 'integer', 'min:-99999', 'max:99999'],
-        ]);
-        $v = $this->clean($v);
+        $v = $request->validate(ProductService::rules($product));
 
-        DB::transaction(function () use ($v, $product, $request) {
-            $product->fill(collect($v)->except('quantity_delta')->all())->save();
-            if (! empty($v['quantity_delta'])) {
-                $this->inventory->change($product->id, (int) $v['quantity_delta'], 'edit', '', $request->user()->terminalLabel());
-            }
-        });
-
-        return response()->json(['data' => $product->fresh()]);
+        return response()->json(['data' => $this->products->update($product, $v, $request->user())]);
     }
 
     /** POST /products/{id}/adjust  {delta, reason} */
     public function adjust(Request $request, Product $product): JsonResponse
     {
-        $v = $request->validate([
-            'delta' => ['required', 'integer', 'min:-99999', 'max:99999', 'not_in:0'],
-            'reason' => ['nullable', 'string', 'max:40'],
-        ]);
-        DB::transaction(fn () => $this->inventory->change($product->id, (int) $v['delta'], $v['reason'] ?? 'adjustment', '', $request->user()->terminalLabel()));
+        $v = $request->validate(ProductService::adjustRules());
 
-        return response()->json(['data' => $product->fresh()]);
+        return response()->json(['data' => $this->products->adjust($product, (int) $v['delta'], $v['reason'] ?? null, $request->user())]);
     }
 
     public function destroy(Product $product): JsonResponse
     {
-        DB::transaction(function () use ($product) {
-            DB::table('pos_deleted_products')->insert([
-                'product_id' => $product->id, 'barcode' => $product->barcode, 'deleted_at' => now(),
-            ]);
-            $product->delete();   // past sale lines keep their own copy of name/barcode/price
-        });
+        $this->products->delete($product);
 
         return response()->json(null, 204);
-    }
-
-    /** POS columns are NOT NULL with '' / 0 defaults, so blank optional fields become '' / 0. */
-    private function clean(array $v): array
-    {
-        foreach (['category', 'brand', 'size', 'color', 'notes'] as $k) {
-            if (array_key_exists($k, $v)) {
-                $v[$k] = trim((string) ($v[$k] ?? ''));
-            }
-        }
-        if (array_key_exists('cost', $v) && $v['cost'] === null) {
-            $v['cost'] = 0;
-        }
-
-        return $v;
-    }
-
-    private function fieldRules(bool $creating): array
-    {
-        $req = $creating ? 'required' : 'sometimes';
-
-        return [
-            'name' => [$req, 'string', 'max:200'],
-            'category' => ['sometimes', 'nullable', 'string', 'max:100'],
-            'brand' => ['sometimes', 'nullable', 'string', 'max:100'],
-            'size' => ['sometimes', 'nullable', 'string', 'max:40'],
-            'color' => ['sometimes', 'nullable', 'string', 'max:60'],
-            'price' => [$req, 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999'],
-            'cost' => ['sometimes', 'nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999'],
-            'reorder_level' => ['sometimes', 'integer', 'min:0', 'max:9999'],
-            'notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
-        ];
     }
 }
