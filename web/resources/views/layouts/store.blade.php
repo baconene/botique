@@ -9,45 +9,52 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('css/app.css') }}?v=1">
+    <link rel="stylesheet" href="{{ asset('css/storefront.css') }}?v=2">
+    <script src="{{ asset('js/storefront.js') }}?v=2" defer></script>
 </head>
-<body>
-    <div class="announce">
-        Free alterations on every dress · Visit us at {{ $store['Address'] ?: 'our boutique' }}
-        @if ($store['Phone']) · {{ $store['Phone'] }} @endif
-    </div>
-    <header class="site-header">
-        <div class="wrap">
-            <a class="logo" href="{{ route('home') }}">{{ $store['StoreName'] }}</a>
-            <nav class="nav">
-                <a href="{{ route('shop') }}" class="{{ request()->routeIs('shop') && !request('category') ? 'active' : '' }}">Shop all</a>
-                <a href="{{ route('shop', ['sort' => 'newest']) }}">New in</a>
-                @foreach (($navCategories ?? collect())->take(4) as $cat)
-                    <a href="{{ route('shop', ['category' => $cat['name']]) }}" class="cat-link {{ request('category') === $cat['name'] ? 'active' : '' }}">{{ $cat['name'] }}</a>
-                @endforeach
+<body class="storefront">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <div class="store-note">A little inspiration. A wardrobe that feels like you.</div>
+    <header class="boutique-header">
+        <div class="wrap header-inner">
+            <a class="brandmark" href="{{ route('home') }}">{{ $store['StoreName'] }}<span>THE EVERYDAY EDIT</span></a>
+            <nav class="desktop-nav" aria-label="Main navigation">
+                <a href="{{ route('shop') }}" @if(request()->routeIs('shop') && !request('sort')) aria-current="page" @endif>Collection</a>
+                <a href="{{ route('shop', ['sort' => 'newest']) }}">New arrivals</a>
+                <a href="{{ route('home') }}#style-edit">The style edit</a>
+                <a href="{{ route('home') }}#visit">Visit us</a>
             </nav>
-            <div class="header-actions">
-                <form action="{{ route('shop') }}" method="get">
-                    <input class="search-mini" type="search" name="q" placeholder="Search dresses, linen, sage…" value="{{ request('q') }}">
+            <details class="header-search">
+                <summary>Search</summary>
+                <form action="{{ route('shop') }}" method="get" role="search">
+                    <label for="store-search">Find something you love</label>
+                    <div class="search-row"><input id="store-search" type="search" name="q" maxlength="100" placeholder="Try linen, sage, a favourite brand…" value="{{ request('q') }}"><button class="btn accent" type="submit">Search collection</button></div>
                 </form>
-                @if (auth('staff')->check())
-                    <a class="btn small" href="{{ route('admin.dashboard') }}">Back office</a>
-                @else
-                    <a class="btn small ghost" href="{{ route('login') }}">Staff login</a>
-                @endif
-            </div>
+            </details>
+            <details class="mobile-navigation">
+                <summary>Menu</summary>
+                <nav aria-label="Mobile navigation">
+                    <a href="{{ route('shop') }}">Collection</a>
+                    <a href="{{ route('shop', ['sort' => 'newest']) }}">New arrivals</a>
+                    <a href="{{ route('home') }}#style-edit">The style edit</a>
+                    <a href="{{ route('home') }}#visit">Visit us</a>
+                </nav>
+            </details>
         </div>
     </header>
-
-    @if (session('status'))
-        <div class="wrap" style="margin-top: 16px"><div class="flash">{{ session('status') }}</div></div>
-    @endif
-
-    @yield('content')
-
-    <footer class="site-footer">
-        <div class="wrap">
-            <span>&copy; {{ date('Y') }} {{ $store['StoreName'] }} · {{ $store['Address'] }}</span>
-            <span>Stock shown live from our in-store POS · <a href="{{ route('login') }}">Staff</a></span>
+    <main id="main-content">
+        @if (session('status'))
+            <div class="wrap"><div class="flash">{{ session('status') }}</div></div>
+        @endif
+        @yield('content')
+    </main>
+    <footer class="boutique-footer">
+        <div class="wrap footer-inner">
+            <div><a class="brandmark" href="{{ route('home') }}">{{ $store['StoreName'] }}</a><p>Everyday pieces. Your own point of view.</p></div>
+            <nav aria-label="Footer navigation"><a href="{{ route('shop') }}">Explore the collection</a><a href="{{ route('home') }}#visit">Contact the boutique</a>
+                @if (auth('staff')->check())<a href="{{ route('admin.dashboard') }}">Back office</a>@else<a href="{{ route('login') }}">Staff login</a>@endif
+            </nav>
+            <p class="copyright">&copy; {{ date('Y') }} {{ $store['StoreName'] }}</p>
         </div>
     </footer>
 </body>

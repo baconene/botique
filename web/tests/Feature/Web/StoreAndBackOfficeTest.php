@@ -48,7 +48,7 @@ class StoreAndBackOfficeTest extends TestCase
 
     public function test_storefront_works_with_an_empty_catalogue(): void
     {
-        $this->get('/')->assertOk()->assertSee('The rails are being restocked');
+        $this->get('/')->assertOk()->assertSee('Our online collection');
     }
 
     public function test_demo_data_command_only_fills_an_empty_catalogue(): void
@@ -58,7 +58,7 @@ class StoreAndBackOfficeTest extends TestCase
         $this->assertGreaterThan(30, $count);
         $this->artisan('pos:demo-data')->assertSuccessful();
         $this->assertSame($count, Product::count());
-        $this->get('/')->assertOk()->assertSee('Featured pieces')->assertDontSee('The rails are being restocked');
+        $this->get('/')->assertOk()->assertSee('Featured pieces')->assertDontSee('Our online collection');
         $this->get('/shop')->assertOk()->assertSee('Cashmere Crew Sweater')->assertSee('14 styles');   // colorways of one style group together
     }
 
