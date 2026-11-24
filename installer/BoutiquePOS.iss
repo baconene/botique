@@ -3,7 +3,7 @@
 ; MySQL Connector/ODBC, and a private MySQL 8.4 server for "On this computer" mode.
 
 #define AppName      "Boutique POS"
-#define AppVersion   "1.3.0"
+#define AppVersion   "1.4.0"
 #define AppPublisher "Boutique POS"
 #define AppExe       "BoutiquePOS.exe"
 #ifndef Redist
