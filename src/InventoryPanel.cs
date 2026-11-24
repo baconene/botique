@@ -43,7 +43,8 @@ namespace BoutiquePOS
             Controls.Add(root);
 
             TableLayoutPanel metrics = new TableLayoutPanel();
-            metrics.Dock = DockStyle.Fill; metrics.Height = Ui.S(86); metrics.ColumnCount = 4;
+            metrics.Dock = DockStyle.Fill; metrics.Height = Ui.S(92); metrics.ColumnCount = 4;
+            metrics.RowCount = 1; metrics.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             metrics.Margin = new Padding(0, 0, 0, Ui.S(16));
             metricItems = Metric(metrics, "PRODUCTS", 0);
             metricUnits = Metric(metrics, "UNITS ON HAND", 1);
@@ -130,13 +131,16 @@ namespace BoutiquePOS
         static Label Metric(TableLayoutPanel host, string caption, int column)
         {
             host.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-            Panel card = new Panel(); card.Dock = DockStyle.Fill; card.BackColor = Color.White;
-            card.Padding = new Padding(Ui.S(16), Ui.S(10), Ui.S(12), Ui.S(8));
-            card.Margin = new Padding(column == 0 ? 0 : Ui.S(6), 0, column == 3 ? 0 : Ui.S(6), 0);
+            // Rounded metric tiles like the web back office; the first one is the featured (plum) tile.
+            bool featured = column == 0;
+            Card card = new Card(); card.Dock = DockStyle.Fill;
+            card.Padding = new Padding(Ui.S(18), Ui.S(12), Ui.S(12), Ui.S(8));
+            card.Margin = new Padding(column == 0 ? 0 : Ui.S(7), 0, column == 3 ? 0 : Ui.S(7), 0);
+            if (featured) { card.BackColor = Ui.Accent; card.BorderColor = Ui.Accent; }
             Label title = new Label(); title.Text = caption; title.Dock = DockStyle.Top;
-            title.Height = Ui.S(22); title.ForeColor = Ui.Muted; title.Font = new Font("Segoe UI Semibold", 9f);
-            Label value = new Label(); value.Dock = DockStyle.Fill; value.ForeColor = Ui.AccentDark;
-            value.Font = new Font("Segoe UI Semibold", 21f); value.AutoEllipsis = true;
+            title.Height = Ui.S(22); title.ForeColor = featured ? Color.FromArgb(230, 214, 234) : Ui.Muted; title.Font = new Font("Segoe UI Semibold", 8f);
+            Label value = new Label(); value.Dock = DockStyle.Fill; value.ForeColor = featured ? Color.White : Ui.Ink;
+            value.Font = new Font("Segoe UI Semibold", 20f); value.AutoEllipsis = true;
             card.Controls.Add(value); card.Controls.Add(title); host.Controls.Add(card, column, 0);
             return value;
         }

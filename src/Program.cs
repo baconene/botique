@@ -299,16 +299,17 @@ namespace BoutiquePOS
                 form.ShowInTaskbar = false;
                 form.Show();
                 Application.DoEvents();
-                string[] names = { "sell", "inventory", "sales", "labels", "settings", "users" };
-                Button[] navigation = form.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<Button>().ToArray();
-                Control[] pages = { form.Pos, form.Inventory, form.Sales, form.Labels, form.SettingsView, form.UsersView };
+                string[] names = { "overview", "sell", "inventory", "sales", "labels", "settings", "users" };
+                Button[] navigation = form.NavigationButtons;
+                Check(navigation.Length == names.Length, "Sidebar has one button per page (" + navigation.Length + ")");
+                Control[] pages = { form.Overview, form.Pos, form.Inventory, form.Sales, form.Labels, form.SettingsView, form.UsersView };
                 form.Pos.HandleScan(DataStore.Data.Products.First().Barcode);
                 form.Labels.AddProducts(DataStore.Data.Products.Take(3), false);
                 for (int i = 0; i < names.Length; i++)
                 {
                     navigation[i].PerformClick();
                     Check(pages[i].Visible, "Navigation opens " + names[i]);
-                    if (i == 2) form.Sales.SelectSale(reloaded);
+                    if (i == 3) form.Sales.SelectSale(reloaded);
                     Application.DoEvents();
                     Shot(form, Path.Combine(outDir, "tab-" + names[i] + ".png"));
                 }

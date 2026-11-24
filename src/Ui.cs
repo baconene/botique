@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -13,27 +14,71 @@ namespace BoutiquePOS
         public static float Scale = 1f;
         public static int S(int px) { return (int)Math.Round(px * Scale); }
 
-        public static readonly Color Accent = Color.FromArgb(110, 52, 86);       // boutique plum
-        public static readonly Color AccentDark = Color.FromArgb(78, 34, 60);
-        public static readonly Color AccentLight = Color.FromArgb(247, 239, 244);
+        // Same palette as the web back office (web/public/css/admin.css): lavender, plum and soft mint.
+        public static readonly Color Accent = Color.FromArgb(105, 64, 110);      // boutique plum #69406e
+        public static readonly Color AccentDark = Color.FromArgb(78, 46, 84);
+        public static readonly Color AccentLight = Color.FromArgb(238, 229, 240);
         public static readonly Color Good = Color.FromArgb(30, 132, 80);
         public static readonly Color Warn = Color.FromArgb(255, 243, 214);
         public static readonly Color Bad = Color.FromArgb(253, 226, 226);
-        public static readonly Color Muted = Color.FromArgb(105, 105, 115);
-        public static readonly Color Canvas = Color.FromArgb(247, 246, 249);
-        public static readonly Color Ink = Color.FromArgb(40, 34, 45);
-        public static readonly Color Line = Color.FromArgb(230, 225, 232);
+        public static readonly Color Muted = Color.FromArgb(119, 114, 133);
+        public static readonly Color Canvas = Color.FromArgb(250, 249, 253);     // main work area
+        public static readonly Color Backdrop = Color.FromArgb(238, 237, 245);   // behind the rounded workspace frame
+        public static readonly Color Ink = Color.FromArgb(39, 35, 57);
+        public static readonly Color Line = Color.FromArgb(233, 229, 238);
+        public static readonly Color Eyebrow = Color.FromArgb(130, 98, 138);
+        public static readonly Color Mint = Color.FromArgb(231, 245, 240);
+
+        /// <summary>Display serif for page titles (the web uses Cormorant Garamond; Georgia ships with Windows).</summary>
+        public static Font Serif(float size) { return new Font("Georgia", size); }
 
         public static Control PageHeading(string title, string description)
         {
-            Panel p = new Panel(); p.Dock = DockStyle.Top; p.Height = S(76);
-            Label heading = new Label(); heading.Text = title;
-            heading.Font = new Font("Segoe UI Semibold", 22f); heading.ForeColor = Ink;
-            heading.Dock = DockStyle.Top; heading.Height = S(42);
-            Label detail = new Label(); detail.Text = description; detail.ForeColor = Muted;
+            return PageHeading("", title, description);
+        }
+
+        /// <summary>Small uppercase eyebrow, serif title and a muted line, like the web back office page heads.</summary>
+        public static Control PageHeading(string eyebrow, string title, string description)
+        {
+            bool hasEyebrow = !string.IsNullOrEmpty(eyebrow);
+            Panel p = new Panel(); p.Dock = DockStyle.Top; p.Height = S(hasEyebrow ? 98 : 80);
+            Label kicker = new Label(); kicker.Text = (eyebrow ?? "").ToUpperInvariant(); kicker.UseMnemonic = false;
+            kicker.Font = new Font("Segoe UI Semibold", 8f); kicker.ForeColor = Eyebrow;
+            kicker.Dock = DockStyle.Top; kicker.Height = S(20); kicker.Visible = hasEyebrow;
+            Label heading = new Label(); heading.Text = title; heading.UseMnemonic = false;
+            heading.Font = Serif(23f); heading.ForeColor = Ink;
+            heading.Dock = DockStyle.Top; heading.Height = S(46);
+            Label detail = new Label(); detail.Text = description; detail.ForeColor = Muted; detail.UseMnemonic = false;
             detail.Dock = DockStyle.Top; detail.Height = S(26);
-            p.Controls.Add(detail); p.Controls.Add(heading);
+            p.Controls.Add(detail); p.Controls.Add(heading); p.Controls.Add(kicker);
             return p;
+        }
+
+        public static GraphicsPath RoundRect(Rectangle r, int radius)
+        {
+            GraphicsPath path = new GraphicsPath();
+            int d = Math.Max(1, Math.Min(radius * 2, Math.Min(r.Width, r.Height)));
+            path.AddArc(r.X, r.Y, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        /// <summary>First non-transparent background behind a control (for painting rounded corners).</summary>
+        public static Color BackdropOf(Control c)
+        {
+            Control p = c.Parent;
+            while (p != null && p.BackColor.A < 255) p = p.Parent;
+            return p != null ? p.BackColor : Canvas;
+        }
+
+        public static bool IsLight(Color c) { return c.GetBrightness() > 0.86f; }
+
+        public static Color Shade(Color c, float amount)
+        {
+            return Color.FromArgb(c.A, (int)(c.R * (1 - amount)), (int)(c.G * (1 - amount)), (int)(c.B * (1 - amount)));
         }
 
         public static string Money(decimal d) { return d.ToString("C2", CultureInfo.CurrentCulture); }
@@ -58,26 +103,23 @@ namespace BoutiquePOS
 
         public static Button MakeButton(string text, EventHandler click, bool primary)
         {
-            Button b = new Button();
+            RoundButton b = new RoundButton();
             b.Text = text;
             b.AutoSize = true;
             b.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            b.Padding = new Padding(S(12), S(6), S(12), S(6));
+            b.Padding = new Padding(S(14), S(6), S(14), S(6));
             b.Margin = new Padding(S(3), S(4), S(6), S(4));
-            b.MinimumSize = new Size(0, S(38));
-            b.FlatStyle = FlatStyle.Flat;
-            b.Cursor = Cursors.Hand;
+            b.MinimumSize = new Size(0, S(40));
+            b.Font = new Font("Segoe UI Semibold", 9.5f);
             if (primary)
             {
                 b.BackColor = Accent; b.ForeColor = Color.White;
-                b.FlatAppearance.BorderSize = 0;
-                b.FlatAppearance.MouseOverBackColor = AccentDark;
+                b.BorderColor = Color.Empty;
             }
             else
             {
                 b.BackColor = Color.White; b.ForeColor = AccentDark;
-                b.FlatAppearance.BorderColor = Line;
-                b.FlatAppearance.MouseOverBackColor = AccentLight;
+                b.BorderColor = Color.FromArgb(222, 214, 229);
             }
             if (click != null) b.Click += click;
             return b;

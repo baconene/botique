@@ -159,7 +159,9 @@ namespace BoutiquePOS
             right.ColumnCount = 2;
             right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            Panel paymentScroll = new Panel();
+            Card paymentScroll = new Card();   // rounded summary card, like the web register
+            paymentScroll.BackColor = Ui.AccentLight; paymentScroll.BorderColor = Color.Empty; paymentScroll.Radius = 18;
+            paymentScroll.Padding = new Padding(Ui.S(6));
             paymentScroll.Dock = DockStyle.Fill; paymentScroll.AutoScroll = true;
             paymentScroll.Controls.Add(right);
             rightHost.Controls.Add(paymentScroll);
@@ -233,7 +235,8 @@ namespace BoutiquePOS
             chkPrint.Margin = new Padding(Ui.S(3), Ui.S(12), Ui.S(3), Ui.S(3));
             AddSpan(right, chkPrint);
 
-            btnComplete = new Button();
+            RoundButton complete = new RoundButton(); complete.Radius = 16;
+            btnComplete = complete;
             btnComplete.Text = "Complete Sale  (F12)";
             btnComplete.Dock = DockStyle.Bottom;
             btnComplete.Height = Ui.S(64);

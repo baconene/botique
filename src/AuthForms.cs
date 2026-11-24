@@ -30,7 +30,7 @@ namespace BoutiquePOS
             band.Dock = DockStyle.Top; band.Height = Ui.S(70); band.BackColor = Ui.Accent;
             Label title = new Label();
             title.Text = string.IsNullOrEmpty(storeName) ? "Boutique POS" : storeName;
-            title.ForeColor = Color.White; title.Font = new Font("Segoe UI Semibold", 16f);
+            title.ForeColor = Color.White; title.Font = Ui.Serif(17f); title.UseMnemonic = false;
             title.AutoSize = false; title.Dock = DockStyle.Fill; title.TextAlign = ContentAlignment.MiddleCenter;
             band.Controls.Add(title);
 
