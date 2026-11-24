@@ -14,7 +14,7 @@
 @endphp
 
 @section('content')
-<link rel="stylesheet" href="{{ asset('css/home.css') }}?v=1">
+<link rel="stylesheet" href="{{ asset('css/home.css') }}?v=3">
 <script>document.documentElement.classList.add('home-anim'); setTimeout(function () { if (!window.gsap) document.documentElement.classList.remove('home-anim'); }, 2500);</script>
 
 <div class="drq" data-home>
@@ -150,11 +150,19 @@
 </section>
 
 {{-- ============ CHERISH ============ --}}
-@if ($cherish)
-<section class="drq-cherish" aria-labelledby="cherish-title">
+@if ($newest->count())
+@php($withPhoto = $newest->filter(fn ($s) => $s['image'])->values())
+<section class="drq-cherish" aria-labelledby="cherish-title" data-swap>
     <div class="drq-wrap drq-cherish-grid">
         <figure class="drq-cherish-photo drq-frame" data-reveal-photo>
-            <img src="{{ $L::img($cherish['image'], 800) }}" alt="{{ trim($cherish['brand'].' '.$cherish['name']) }}" loading="lazy">
+            {{-- One photo per new arrival; hovering a row below brings its photo forward. --}}
+            @forelse ($withPhoto as $p)
+                <img src="{{ $L::img($p['image'], 800) }}" alt="{{ trim($p['brand'].' '.$p['name']) }}" loading="lazy"
+                     data-swap-img="{{ $p['id'] }}" class="{{ $loop->first ? 'is-active' : '' }}">
+            @empty
+                <img src="{{ $cherish ? $L::img($cherish['image'], 800) : $fallback }}" alt="" loading="lazy" class="is-active">
+            @endforelse
+            <figcaption class="drq-swap-caption" data-swap-caption>{{ $withPhoto->first()['name'] ?? '' }}</figcaption>
         </figure>
         <div class="drq-cherish-copy">
             <span class="drq-pill" data-reveal>Just arrived</span>
@@ -162,11 +170,12 @@
             <p data-reveal>New pieces land in the boutique every week. Here's what just arrived. Reserve your size and try it on in store.</p>
             <ol class="drq-new-list">
                 @foreach ($newest as $n)
-                    <li data-list-item>
+                    <li data-list-item data-swap-row="{{ $n['image'] ? $n['id'] : '' }}" data-swap-name="{{ $n['name'] }}" class="{{ $loop->first ? 'is-active' : '' }}">
                         <a href="{{ route('shop.item', $n['id']) }}">
                             <span class="drq-new-num">0{{ $loop->iteration }}</span>
                             <span class="drq-new-name">{{ $n['name'] }}<small>{{ $n['brand'] }}</small></span>
                             <span class="drq-new-price">{{ $L::priceRange($n['price_min'], $n['price_max']) }}</span>
+                            <span class="drq-new-go" aria-hidden="true">→</span>
                         </a>
                     </li>
                 @endforeach
@@ -229,5 +238,5 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer></script>
-<script src="{{ asset('js/home.js') }}?v=1" defer></script>
+<script src="{{ asset('js/home.js') }}?v=3" defer></script>
 @endsection

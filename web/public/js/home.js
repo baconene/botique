@@ -1,5 +1,47 @@
 // Home page motion (GSAP + ScrollTrigger). Content is fully visible without JavaScript,
 // without GSAP (CDN blocked) and for visitors who prefer reduced motion.
+// "Just arrived": hovering (or focusing) a row brings that product's photo forward.
+// Works with plain CSS fades; GSAP, when present, adds a wipe-and-zoom reveal.
+(() => {
+    'use strict';
+
+    const section = document.querySelector('[data-swap]');
+    if (!section) return;
+    const imgs = [...section.querySelectorAll('[data-swap-img]')];
+    const rows = [...section.querySelectorAll('[data-swap-row]')];
+    const caption = section.querySelector('[data-swap-caption]');
+    const motion = () => window.gsap && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let current = imgs.find((i) => i.classList.contains('is-active'));
+
+    const show = (row) => {
+        rows.forEach((r) => r.classList.toggle('is-active', r === row));
+        const next = imgs.find((i) => i.dataset.swapImg === row.dataset.swapRow);
+        if (!next || next === current) return;
+        if (caption) caption.textContent = row.dataset.swapName || '';
+        const prev = current;
+        current = next;
+        imgs.forEach((i) => { i.style.zIndex = i === next ? 2 : (i === prev ? 1 : 0); });
+        if (motion()) {
+            const { gsap } = window;
+            gsap.killTweensOf(next);
+            gsap.set(next, { opacity: 1 });
+            gsap.fromTo(next, { clipPath: 'inset(0 0 100% 0)', scale: 1.12 }, {
+                clipPath: 'inset(0 0 0% 0)', scale: 1, duration: 0.75, ease: 'power3.out',
+                onComplete: () => { if (prev && prev !== current) prev.classList.remove('is-active'); },
+            });
+            next.classList.add('is-active');
+        } else {
+            next.classList.add('is-active');
+            if (prev) prev.classList.remove('is-active');
+        }
+    };
+
+    rows.forEach((row) => {
+        row.addEventListener('mouseenter', () => show(row));
+        row.addEventListener('focusin', () => show(row));
+    });
+})();
+
 (() => {
     'use strict';
 
@@ -42,10 +84,32 @@
     if (!hasST) return;
     const { ScrollTrigger } = window;
 
-    // ---------- hero parallax ----------
-    gsap.to(q('[data-hero-main] img'), { yPercent: 8, ease: 'none', scrollTrigger: { trigger: '.drq-hero', start: 'top top', end: 'bottom top', scrub: true } });
-    gsap.to(q('[data-hero-cut]'), { yPercent: -18, ease: 'none', scrollTrigger: { trigger: '.drq-hero', start: 'top top', end: 'bottom top', scrub: true } });
-    gsap.to('.drq-title', { xPercent: -4, ease: 'none', scrollTrigger: { trigger: '.drq-hero', start: 'top top', end: 'bottom top', scrub: true } });
+    // ---------- hero: scroll-driven scene ----------
+    // Desktop: the hero stays pinned while scrolling plays a short scene. Smaller screens get a light parallax.
+    const mm = gsap.matchMedia();
+    const lines = q('.drq-line');
+    mm.add('(min-width: 801px)', () => {
+        const scene = gsap.timeline({
+            defaults: { ease: 'none' },
+            scrollTrigger: { trigger: '.drq-hero', start: 'top top', end: '+=90%', scrub: 0.6, pin: true, anticipatePin: 1 },
+        });
+        scene
+            .to(lines[0] || [], { xPercent: -14 }, 0)
+            .to(lines[1] || [], { xPercent: 12 }, 0)
+            .to('.drq-title', { autoAlpha: 0.15, y: -40 }, 0.35)
+            .to('[data-hero-main]', { scale: 0.86, yPercent: -6, borderRadius: 18 }, 0)
+            .to('[data-hero-main] img', { scale: 1.12 }, 0)
+            .to('[data-hero-cut]', { yPercent: -45, rotate: -3 }, 0)
+            .to('[data-orb]', { xPercent: -260, yPercent: 220, rotate: 300 }, 0)
+            .to('.drq-hero-left', { yPercent: -30, autoAlpha: 0 }, 0.2)
+            .to('.drq-hero-note, .drq-hero-social', { autoAlpha: 0 }, 0.1);
+        return () => gsap.set(['.drq-title', '[data-hero-main]', '.drq-hero-left', '.drq-hero-note', '.drq-hero-social'], { clearProps: 'all' });
+    });
+    mm.add('(max-width: 800px)', () => {
+        gsap.to(q('[data-hero-main] img'), { yPercent: 8, ease: 'none', scrollTrigger: { trigger: '.drq-hero', start: 'top top', end: 'bottom top', scrub: true } });
+        gsap.to(lines[0] || [], { xPercent: -8, ease: 'none', scrollTrigger: { trigger: '.drq-hero', start: 'top top', end: 'bottom top', scrub: true } });
+        gsap.to(lines[1] || [], { xPercent: 8, ease: 'none', scrollTrigger: { trigger: '.drq-hero', start: 'top top', end: 'bottom top', scrub: true } });
+    });
 
     // ---------- generic reveals ----------
     ScrollTrigger.batch(q('[data-reveal]'), {
@@ -56,7 +120,7 @@
 
     // Photos open like a curtain, then drift slightly while scrolling.
     q('[data-reveal-photo]').forEach((fig) => {
-        const img = fig.querySelector('img');
+        const img = fig.querySelectorAll('img');
         gsap.from(img, { scale: 1.25, duration: 1.6, ease: 'expo.out', scrollTrigger: { trigger: fig, start: 'top 85%', once: true } });
         gsap.from(fig, { clipPath: 'polygon(0 0, 0 0, 0 100%, 0 100%)', duration: 1.3, ease: 'power4.inOut', scrollTrigger: { trigger: fig, start: 'top 85%', once: true },
             onComplete: () => gsap.set(fig, { clearProps: 'clipPath' }) });
