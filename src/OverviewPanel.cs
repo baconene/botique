@@ -28,7 +28,7 @@ namespace BoutiquePOS
             DoubleBuffered = true;
 
             TableLayoutPanel stats = new TableLayoutPanel();
-            stats.Dock = DockStyle.Top; stats.Height = Ui.S(132); stats.ColumnCount = 4; stats.RowCount = 1;
+            stats.Dock = DockStyle.Top; stats.Height = Ui.S(146); stats.ColumnCount = 4; stats.RowCount = 1;
             stats.BackColor = Ui.Canvas;
             for (int i = 0; i < 4; i++) stats.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
             statSales = new StatCard("Sales today · incl. tax", "Completed receipts only", true);
@@ -40,7 +40,7 @@ namespace BoutiquePOS
             statLow.Click += delegate { main.OpenInventory(); };
             foreach (StatCard c in new StatCard[] { statSales, statCount, statItems, statLow })
             {
-                c.Dock = DockStyle.Fill; c.Margin = new Padding(0, 0, c == statLow ? 0 : Ui.S(14), Ui.S(16));
+                c.Dock = DockStyle.Fill; c.Margin = new Padding(0, 0, c == statLow ? 0 : Ui.S(4), Ui.S(6));
                 stats.Controls.Add(c);
             }
 
@@ -52,7 +52,7 @@ namespace BoutiquePOS
             body.RowStyles.Add(new RowStyle(SizeType.Percent, 58f));
 
             // Sales story
-            chartCard = new Card(); chartCard.Dock = DockStyle.Fill; chartCard.Margin = new Padding(0, 0, Ui.S(14), 0);
+            chartCard = new Card(); chartCard.Dock = DockStyle.Fill; chartCard.Margin = new Padding(0, 0, Ui.S(4), 0);
             Label chartKicker = Kicker("Your sales story");
             Label chartTitle = Title("The last two weeks");
             lblChartTotal = new Label(); lblChartTotal.Dock = DockStyle.Top; lblChartTotal.Height = Ui.S(44);
@@ -66,7 +66,7 @@ namespace BoutiquePOS
             body.SetRowSpan(chartCard, 2);
 
             // Payment mix
-            payCard = new Card(); payCard.Dock = DockStyle.Fill; payCard.Margin = new Padding(0, 0, 0, Ui.S(14));
+            payCard = new Card(); payCard.Dock = DockStyle.Fill; payCard.Margin = new Padding(0, 0, 0, Ui.S(2));
             payments = new RowList(); payments.Dock = DockStyle.Fill; payments.Empty = "Cash, card and other payments will appear here after checkout.";
             payCard.Controls.Add(payments); payCard.Controls.Add(Title("Payment mix")); payCard.Controls.Add(Kicker("Today's balance"));
             body.Controls.Add(payCard, 1, 0);
@@ -80,8 +80,25 @@ namespace BoutiquePOS
             stockCard.Controls.Add(Title("Stock watch")); stockCard.Controls.Add(Kicker("Keep the rails ready"));
             body.Controls.Add(stockCard, 1, 1);
 
+            // Short windows: the stock watch gets the whole right column; the payment mix returns when there's room.
+            body.Resize += delegate { FitRightColumn(body); };
+
             Controls.Add(body);
             Controls.Add(stats);
+        }
+
+        bool showSales;
+
+        void FitRightColumn(TableLayoutPanel body)
+        {
+            bool roomy = body.Height >= Ui.S(440);
+            payCard.Visible = showSales && roomy;
+            float payShare = payCard.Visible ? 42f : 0f;
+            if (body.RowStyles[0].Height != payShare)
+            {
+                body.RowStyles[0].Height = payShare;
+                body.RowStyles[1].Height = 100f - payShare;
+            }
         }
 
         static Label Kicker(string text)
@@ -103,7 +120,9 @@ namespace BoutiquePOS
         {
             bool canSales = Session.Can(Permissions.SalesView);
             bool canStock = Session.Can(Permissions.InventoryView) || Session.Can(Permissions.InventoryEdit) || Session.Can(Permissions.StockAdjust);
-            statSales.Visible = statCount.Visible = statItems.Visible = chartCard.Visible = payCard.Visible = canSales;
+            statSales.Visible = statCount.Visible = statItems.Visible = chartCard.Visible = canSales;
+            showSales = canSales;
+            if (chartCard.Parent is TableLayoutPanel) FitRightColumn((TableLayoutPanel)chartCard.Parent);
             statLow.Visible = stockCard.Visible = canStock;
 
             if (canSales)

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace BoutiquePOS
@@ -26,6 +27,8 @@ namespace BoutiquePOS
         readonly Label lblStore, lblScanner, lblUser, lblRole, lblAvatar, lblCrumb;
         readonly List<NavButton> navigationButtons = new List<NavButton>();
         readonly Action fitSidebarNote;
+        readonly CaptionButton btnMax;
+        DateTime lastCaptionClick = DateTime.MinValue;
         readonly ToolStripStatusLabel status;
         readonly Timer statusTimer;
         public readonly ScannerService Scanner;
@@ -37,25 +40,20 @@ namespace BoutiquePOS
         {
             Text = "Boutique POS & Inventory";
             Font = new Font("Segoe UI", 10f);
-            BackColor = Ui.Backdrop;
+            BackColor = Ui.Canvas;
             ForeColor = Ui.Ink;
+            if (Ui.AppIcon != null) Icon = Ui.AppIcon;
             StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(Ui.S(1360), Ui.S(860));
             MinimumSize = new Size(Ui.S(1080), Ui.S(660));
-            Padding = new Padding(Ui.S(14));
             KeyPreview = true;
             DoubleBuffered = true;
 
-            // Rounded workspace frame
+            // Borderless look: the native frame stays (resize, snap, shadow, taskbar) but its title bar is
+            // removed in WndProc; the sidebar and top bar act as the title bar.
             Panel frame = new Panel();
             frame.Dock = DockStyle.Fill;
             frame.BackColor = Ui.Canvas;
-            frame.Resize += delegate
-            {
-                if (frame.Width <= 0 || frame.Height <= 0) return;
-                using (GraphicsPath p = Ui.RoundRect(new Rectangle(0, 0, frame.Width, frame.Height), Ui.S(22)))
-                    frame.Region = new Region(p);
-            };
 
             // ---------------- sidebar ----------------
             Panel sidebar = new Panel();
@@ -175,8 +173,35 @@ namespace BoutiquePOS
             lblScanner = new Label();
             lblScanner.Dock = DockStyle.Right; lblScanner.Width = Ui.S(440); lblScanner.AutoEllipsis = true; lblScanner.UseMnemonic = false;
             lblScanner.TextAlign = ContentAlignment.MiddleRight; lblScanner.ForeColor = Ui.Muted; lblScanner.Font = new Font("Segoe UI", 9f);
+            topbar.Padding = new Padding(0, Ui.S(8), Ui.S(112), 1);   // clear of the window buttons; 1px keeps the divider visible
             topbar.Controls.Add(lblCrumb);
             topbar.Controls.Add(lblScanner);
+
+            // Window buttons, pinned to the top-right corner of the window.
+            Panel caption = new Panel();
+            caption.Size = new Size(Ui.S(46) * 3, Ui.S(34)); caption.BackColor = Ui.Canvas;
+            CaptionButton btnMin = CaptionGlyph("", "Minimize");
+            btnMax = CaptionGlyph("", "Maximize");
+            CaptionButton btnClose = CaptionGlyph("", "Close"); btnClose.IsClose = true;
+            btnMin.Click += delegate { WindowState = FormWindowState.Minimized; };
+            btnMax.Click += delegate { ToggleMaximize(); };
+            btnClose.Click += delegate { Close(); };
+            btnClose.Dock = DockStyle.Right; btnMax.Dock = DockStyle.Right; btnMin.Dock = DockStyle.Right;
+            caption.Controls.Add(btnMin); caption.Controls.Add(btnMax); caption.Controls.Add(btnClose);
+            frame.Controls.Add(caption);
+            frame.Resize += delegate { caption.Location = new Point(frame.Width - caption.Width, 0); caption.BringToFront(); };
+            Resize += delegate
+            {
+                bool max = WindowState == FormWindowState.Maximized;
+                btnMax.Glyph = max ? "" : "";
+                btnMax.AccessibleName = max ? "Restore" : "Maximize";
+                btnMax.Invalidate();
+            };
+
+            // Dragging the sidebar or top bar moves the window; their top edge resizes it; double-click maximises.
+            foreach (Control c in new Control[] { topbar, lblCrumb, lblScanner, sidebar, lblStore, tagline, note, noteKicker })
+                HookWindowChrome(c);
+            foreach (Control c in stack) if (!(c is NavButton)) HookWindowChrome(c);
 
             StatusStrip strip = new StatusStrip();
             strip.BackColor = Ui.Canvas; strip.SizingGrip = false;
@@ -221,6 +246,103 @@ namespace BoutiquePOS
             l.Font = new Font("Segoe UI Semibold", 7f); l.ForeColor = Color.FromArgb(140, 132, 153);
             l.Padding = new Padding(Ui.S(12), Ui.S(6), 0, 0);
             return l;
+        }
+
+        // ---------------- borderless window ----------------
+
+        const int WM_NCCALCSIZE = 0x0083, WM_NCACTIVATE = 0x0086, WM_NCLBUTTONDOWN = 0x00A1;
+        const int HTCAPTION = 2, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT { public int Left, Top, Right, Bottom; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct NCCALCSIZE_PARAMS { public RECT Rgrc0, Rgrc1, Rgrc2; public IntPtr LpPos; }
+
+        [DllImport("user32.dll")] static extern bool ReleaseCapture();
+        [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
+        [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+        static CaptionButton CaptionGlyph(string glyph, string name)
+        {
+            CaptionButton b = new CaptionButton();
+            b.Glyph = glyph; b.AccessibleName = name; b.Width = Ui.S(46);
+            return b;
+        }
+
+        void ToggleMaximize()
+        {
+            WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+        }
+
+        /// <summary>Lets a control act as the title bar: drag to move, top edge to resize, double-click to maximise.</summary>
+        void HookWindowChrome(Control c)
+        {
+            c.MouseMove += delegate(object sender, MouseEventArgs e)
+            {
+                int hit = ChromeHit(c, e.Location);
+                c.Cursor = hit == HTTOP ? Cursors.SizeNS : hit == HTTOPLEFT ? Cursors.SizeNWSE : hit == HTTOPRIGHT ? Cursors.SizeNESW : Cursors.Default;
+            };
+            c.MouseDown += delegate(object sender, MouseEventArgs e)
+            {
+                if (e.Button != MouseButtons.Left) return;
+                int hit = ChromeHit(c, e.Location);
+                if (hit == HTCAPTION)
+                {
+                    DateTime now = DateTime.Now;
+                    if ((now - lastCaptionClick).TotalMilliseconds <= SystemInformation.DoubleClickTime)
+                    {
+                        lastCaptionClick = DateTime.MinValue; ToggleMaximize(); return;
+                    }
+                    lastCaptionClick = now;
+                }
+                ReleaseCapture();
+                SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)hit, IntPtr.Zero);
+            };
+        }
+
+        int ChromeHit(Control c, Point p)
+        {
+            Point f = PointToClient(c.PointToScreen(p));
+            int edge = Ui.S(6);
+            if (WindowState == FormWindowState.Normal && f.Y < edge)
+            {
+                if (f.X < edge * 2) return HTTOPLEFT;
+                if (f.X > ClientSize.Width - edge * 2) return HTTOPRIGHT;
+                return HTTOP;
+            }
+            return HTCAPTION;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try { int round = 2; DwmSetWindowAttribute(Handle, 33, ref round, 4); }   // Windows 11: rounded corners
+            catch (Exception) { /* Windows 10: square corners */ }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+            {
+                // Keep Windows' side and bottom resize borders, but give the title bar area to the client.
+                NCCALCSIZE_PARAMS p = (NCCALCSIZE_PARAMS)Marshal.PtrToStructure(m.LParam, typeof(NCCALCSIZE_PARAMS));
+                int top = p.Rgrc0.Top;
+                base.WndProc(ref m);
+                p = (NCCALCSIZE_PARAMS)Marshal.PtrToStructure(m.LParam, typeof(NCCALCSIZE_PARAMS));
+                p.Rgrc0.Top = top;
+                if (WindowState == FormWindowState.Maximized)
+                    p.Rgrc0.Top += GetSystemMetrics(33 /* SM_CYFRAME */) + GetSystemMetrics(92 /* SM_CXPADDEDBORDER */);
+                Marshal.StructureToPtr(p, m.LParam, false);
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            if (m.Msg == WM_NCACTIVATE)
+            {
+                m.LParam = new IntPtr(-1);   // don't let Windows repaint a title bar on (de)activation
+            }
+            base.WndProc(ref m);
         }
 
         void UpdateNavigation()

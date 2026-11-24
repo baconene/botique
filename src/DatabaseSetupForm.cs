@@ -29,6 +29,7 @@ namespace BoutiquePOS
         {
             existing = current;
             Text = firstRun ? "Welcome to Boutique POS - database setup" : "Database connection";
+            if (Ui.AppIcon != null) Icon = Ui.AppIcon;
             Font = new Font("Segoe UI", 10f);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false; MinimizeBox = false;

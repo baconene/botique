@@ -18,6 +18,7 @@ namespace BoutiquePOS
         public LoginForm(string storeName, string connection, bool allowCancel, string presetUser)
         {
             Text = "Sign in - Boutique POS";
+            if (Ui.AppIcon != null) Icon = Ui.AppIcon;
             Font = new Font("Segoe UI", 10.5f);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false; MinimizeBox = false;
@@ -106,6 +107,7 @@ namespace BoutiquePOS
         public FirstAdminForm()
         {
             Text = "Create the Admin account";
+            if (Ui.AppIcon != null) Icon = Ui.AppIcon;
             Font = new Font("Segoe UI", 10f);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false; MinimizeBox = false;

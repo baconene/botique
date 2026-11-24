@@ -1,4 +1,4 @@
-﻿; Boutique POS installer (Inno Setup 6). Build with ..\build-installer.ps1
+; Boutique POS installer (Inno Setup 6). Build with ..\build-installer.ps1
 ; Bundles: .NET Framework 4.8 (only installed if missing), VC++ 2015-2022 runtime,
 ; MySQL Connector/ODBC, and a private MySQL 8.4 server for "On this computer" mode.
 
@@ -31,6 +31,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 MinVersion=10.0
 WizardStyle=modern
+SetupIconFile=..\src\app.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
 CloseApplications=yes

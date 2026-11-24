@@ -32,6 +32,21 @@ namespace BoutiquePOS
         /// <summary>Display serif for page titles (the web uses Cormorant Garamond; Georgia ships with Windows).</summary>
         public static Font Serif(float size) { return new Font("Georgia", size); }
 
+        static Icon appIcon; static bool iconLoaded;
+        /// <summary>The app icon embedded in the exe (src/app.ico via /win32icon), for window title bars and the taskbar.</summary>
+        public static Icon AppIcon
+        {
+            get
+            {
+                if (!iconLoaded)
+                {
+                    iconLoaded = true;
+                    try { appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch (Exception) { appIcon = null; }
+                }
+                return appIcon;
+            }
+        }
+
         public static Control PageHeading(string title, string description)
         {
             return PageHeading("", title, description);

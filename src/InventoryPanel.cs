@@ -43,9 +43,9 @@ namespace BoutiquePOS
             Controls.Add(root);
 
             TableLayoutPanel metrics = new TableLayoutPanel();
-            metrics.Dock = DockStyle.Fill; metrics.Height = Ui.S(92); metrics.ColumnCount = 4;
+            metrics.Dock = DockStyle.Fill; metrics.Height = Ui.S(106); metrics.ColumnCount = 4;
             metrics.RowCount = 1; metrics.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            metrics.Margin = new Padding(0, 0, 0, Ui.S(16));
+            metrics.Margin = new Padding(0, 0, 0, Ui.S(8));
             metricItems = Metric(metrics, "PRODUCTS", 0);
             metricUnits = Metric(metrics, "UNITS ON HAND", 1);
             metricValue = Metric(metrics, "RETAIL VALUE", 2);
@@ -135,7 +135,7 @@ namespace BoutiquePOS
             bool featured = column == 0;
             Card card = new Card(); card.Dock = DockStyle.Fill;
             card.Padding = new Padding(Ui.S(18), Ui.S(12), Ui.S(12), Ui.S(8));
-            card.Margin = new Padding(column == 0 ? 0 : Ui.S(7), 0, column == 3 ? 0 : Ui.S(7), 0);
+            card.Margin = new Padding(column == 0 ? 0 : Ui.S(1), 0, column == 3 ? 0 : Ui.S(1), 0);
             if (featured) { card.BackColor = Ui.Accent; card.BorderColor = Ui.Accent; }
             Label title = new Label(); title.Text = caption; title.Dock = DockStyle.Top;
             title.Height = Ui.S(22); title.ForeColor = featured ? Color.FromArgb(230, 214, 234) : Ui.Muted; title.Font = new Font("Segoe UI Semibold", 8f);

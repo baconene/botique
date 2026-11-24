@@ -58,11 +58,17 @@ namespace BoutiquePOS
         }
     }
 
-    /// <summary>White rounded card with a hairline border (.panel / .stat). Children inherit its fill colour.</summary>
+    /// <summary>
+    /// White rounded card with a hairline border and a soft drop shadow (.panel / .stat). Children inherit its
+    /// fill colour. The shadow is painted inside the card's own bounds, so the card body is inset by the shadow
+    /// size and children are laid out inside the body (see DisplayRectangle).
+    /// </summary>
     public class Card : Panel
     {
         public int Radius = 16;
         public Color BorderColor = Ui.Line;
+        public int Shadow = 7;                                       // unscaled px; 0 = flat
+        public Color ShadowColor = Color.FromArgb(66, 48, 92);       // plum-tinted, like the web's box-shadows
 
         public Card()
         {
@@ -71,17 +77,81 @@ namespace BoutiquePOS
             Padding = new Padding(Ui.S(20));
         }
 
+        int Sh { get { return Shadow <= 0 ? 0 : Ui.S(Shadow); } }
+
+        /// <summary>The visible card body: room for the shadow on the sides, a little above and more below.</summary>
+        Rectangle Body
+        {
+            get
+            {
+                int s = Sh;
+                return new Rectangle(s, s / 2, Math.Max(1, Width - 2 * s - 1), Math.Max(1, Height - s / 2 - s * 3 / 2 - 1));
+            }
+        }
+
+        public override Rectangle DisplayRectangle
+        {
+            get
+            {
+                Rectangle r = base.DisplayRectangle;
+                int s = Sh;
+                return new Rectangle(r.X + s, r.Y + s / 2, Math.Max(0, r.Width - 2 * s), Math.Max(0, r.Height - s / 2 - s * 3 / 2));
+            }
+        }
+
         protected override void OnPaintBackground(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
             g.Clear(Ui.BackdropOf(this));
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle r = new Rectangle(0, 0, Width - 1, Height - 1);
-            using (GraphicsPath path = Ui.RoundRect(r, Ui.S(Radius)))
+            Rectangle body = Body;
+            int s = Sh, radius = Ui.S(Radius);
+            // Soft shadow: stacked, faint rounded layers, shifted down a little.
+            for (int i = s; i >= 1; i--)
+            {
+                int alpha = (int)Math.Round(9.0 * (1.0 - (double)(i - 1) / s) + 1);
+                Rectangle layer = Rectangle.Inflate(body, i, i);
+                layer.Offset(0, s / 3);
+                using (GraphicsPath sp = Ui.RoundRect(layer, radius + i))
+                using (SolidBrush sb = new SolidBrush(Color.FromArgb(alpha, ShadowColor)))
+                    g.FillPath(sb, sp);
+            }
+            using (GraphicsPath path = Ui.RoundRect(body, radius))
             {
                 using (SolidBrush b = new SolidBrush(BackColor)) g.FillPath(b, path);
                 if (BorderColor != Color.Empty) using (Pen pen = new Pen(BorderColor)) g.DrawPath(pen, path);
             }
+        }
+    }
+
+    /// <summary>Minimise / maximise / close button for the borderless main window.</summary>
+    public class CaptionButton : Button
+    {
+        bool hover, pressed;
+        public string Glyph = "";
+        public bool IsClose;
+
+        public CaptionButton()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            FlatStyle = FlatStyle.Flat; FlatAppearance.BorderSize = 0;
+            TabStop = false;
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; pressed = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnMouseDown(MouseEventArgs e) { pressed = true; Invalidate(); base.OnMouseDown(e); }
+        protected override void OnMouseUp(MouseEventArgs e) { pressed = false; Invalidate(); base.OnMouseUp(e); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            Color back = Ui.BackdropOf(this), ink = Ui.Muted;
+            if (hover && IsClose) { back = pressed ? Color.FromArgb(160, 30, 22) : Color.FromArgb(196, 43, 28); ink = Color.White; }
+            else if (hover) { back = pressed ? Color.FromArgb(222, 214, 229) : Color.FromArgb(236, 232, 241); ink = Ui.Ink; }
+            g.Clear(back);
+            using (Font icon = new Font(NavButton.IconFontName, 7.5f))
+                TextRenderer.DrawText(g, Glyph, icon, ClientRectangle, ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         }
     }
 
@@ -93,6 +163,7 @@ namespace BoutiquePOS
         public string Glyph = "";
         public string Hint = "";   // keyboard shortcut shown on the right, e.g. "F1"
         static readonly string IconFont = PickIconFont();
+        public static string IconFontName { get { return IconFont; } }
 
         public NavButton()
         {

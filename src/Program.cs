@@ -393,11 +393,25 @@ namespace BoutiquePOS
             catch (Exception) { return true; }
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+
         static void Shot(Form f, string path)
         {
+            f.Refresh(); Application.DoEvents();
             using (Bitmap shot = new Bitmap(f.Width, f.Height))
             {
-                f.DrawToBitmap(shot, new Rectangle(0, 0, f.Width, f.Height));
+                // Ask Windows (DWM) to render the window as it really appears, including the borderless frame;
+                // fall back to WinForms' own drawing if that isn't available.
+                bool ok = false;
+                using (Graphics g = Graphics.FromImage(shot))
+                {
+                    IntPtr hdc = g.GetHdc();
+                    try { ok = PrintWindow(f.Handle, hdc, 2 /* PW_RENDERFULLCONTENT */); }
+                    catch (Exception) { ok = false; }
+                    finally { g.ReleaseHdc(hdc); }
+                }
+                if (!ok) f.DrawToBitmap(shot, new Rectangle(0, 0, f.Width, f.Height));
                 shot.Save(path, ImageFormat.Png);
             }
         }
