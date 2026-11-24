@@ -142,6 +142,72 @@ class StoreAndBackOfficeTest extends TestCase
         $this->assertNull(Product::find($new->id));
     }
 
+    // ---------------- product photos ----------------
+
+    public function test_edit_page_uploads_shows_and_removes_a_photo_for_all_sizes_of_a_colour(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $m = $this->product(['size' => 'M']);
+        $s = $this->product(['size' => 'S']);
+        $ivory = $this->product(['size' => 'M', 'color' => 'Ivory']);
+        $this->actingAs($this->staff('sam', 4), 'staff');
+
+        $this->get("/admin/inventory/{$m->id}/edit")->assertOk()->assertSee('No photo yet')->assertSee('All 2 sizes in Sage');
+
+        $file = \Illuminate\Http\UploadedFile::fake()->image('dress.jpg', 800, 1000);
+        $this->put("/admin/inventory/{$m->id}", ['name' => $m->name, 'barcode' => $m->barcode, 'price' => '89.00', 'photo' => $file, 'photo_scope' => 'color'])
+            ->assertRedirect()->assertSessionHas('status', fn ($s) => str_contains($s, 'photo uploaded for 2 items'));
+        $path = 'products/'.$file->hashName();
+        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($path);
+        $this->assertDatabaseHas('product_images', ['product_id' => $s->id, 'path' => $path]);
+        $this->assertDatabaseMissing('product_images', ['product_id' => $ivory->id]);
+
+        $url = route('media.product', $file->hashName());
+        $this->get("/admin/inventory/{$m->id}/edit")->assertOk()->assertSee($url)->assertSee('Remove the photo');
+        $this->get('/admin/inventory')->assertSee($url);
+        $this->get('/shop')->assertSee($url);
+        $this->get('/shop/item/'.$s->id)->assertSee($url);
+        $this->get($url)->assertOk();
+
+        $this->put("/admin/inventory/{$m->id}", ['name' => $m->name, 'barcode' => $m->barcode, 'price' => '89.00', 'remove_photo' => 1, 'photo_scope' => 'color'])
+            ->assertRedirect();
+        $this->assertSame(0, \App\Models\Pos\ProductImage::count());
+        \Illuminate\Support\Facades\Storage::disk('public')->assertMissing($path);   // file no longer used, so deleted
+    }
+
+    public function test_photo_link_and_add_variant_keeps_the_photo(): void
+    {
+        $p = $this->product();
+        $this->actingAs($this->staff('sam', 4), 'staff');
+        $this->put("/admin/inventory/{$p->id}", ['name' => $p->name, 'barcode' => $p->barcode, 'price' => '89.00',
+            'photo_url' => 'https://images.unsplash.com/photo-1764298493197-a1c1cce57800', 'photo_scope' => 'item'])->assertRedirect();
+        $this->get('/shop')->assertSee('https://images.unsplash.com/photo-1764298493197-a1c1cce57800?auto=format', false);
+
+        $this->get("/admin/inventory/create?from={$p->id}")->assertOk()->assertSee('copy_photo_from', false);
+        $this->post('/admin/inventory', ['name' => $p->name, 'brand' => $p->brand, 'size' => 'L', 'color' => 'Sage', 'price' => '89.00',
+            'copy_photo_from' => $p->id])->assertRedirect();
+        $l = Product::where('size', 'L')->first();
+        $this->assertSame('https://images.unsplash.com/photo-1764298493197-a1c1cce57800', $l->image->path);
+
+        $this->put("/admin/inventory/{$p->id}", ['name' => $p->name, 'barcode' => $p->barcode, 'price' => '89.00', 'photo_url' => 'http://insecure.example/x.jpg'])
+            ->assertSessionHasErrors('photo_url');
+        $this->delete("/admin/inventory/{$l->id}")->assertRedirect();
+        $this->assertDatabaseMissing('product_images', ['product_id' => $l->id]);
+    }
+
+    public function test_seeded_demo_items_all_have_photos(): void
+    {
+        $this->seed(\Database\Seeders\BoutiqueProductSeeder::class);
+        $this->assertSame(Product::count(), \App\Models\Pos\ProductImage::count());
+        $this->assertCount(80, \Database\Seeders\BoutiqueProductSeeder::PHOTOS);
+        foreach (\Database\Seeders\BoutiqueProductSeeder::CATALOGUE as [, $styles]) {
+            foreach ($styles as $style) {
+                $this->assertNotNull(\Database\Seeders\BoutiqueProductSeeder::photoUrl($style[0]), $style[0].' has no photo');
+            }
+        }
+        $this->get('/shop')->assertSee('images.unsplash.com/photo-', false);
+    }
+
     // ---------------- web POS ----------------
 
     public function test_web_pos_search_sale_and_receipt(): void

@@ -3,6 +3,8 @@
     @include('partials.art', [
         'category' => $style['category'],
         'color' => $style['color'],
+        'image' => $style['image'] ?? null,
+        'alt' => trim($style['brand'].' '.$style['name']),
         'tag' => $style['in_stock'] <= 0 ? 'Sold out' : ($style['low'] ? 'Only a few left' : null),
     ])
     <div class="body">

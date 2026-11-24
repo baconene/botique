@@ -15,7 +15,7 @@ class Catalog
 
     public function styles(?string $category = null, ?string $search = null, string $sort = 'featured'): Collection
     {
-        $query = Product::query();
+        $query = Product::query()->with('image');
         if ($category) {
             $query->where('category', $category);
         }
@@ -41,7 +41,7 @@ class Catalog
     /** All variants of the style a product belongs to. */
     public function styleFor(Product $product): array
     {
-        $variants = Product::where('name', $product->name)->where('brand', $product->brand)->get();
+        $variants = Product::with('image')->where('name', $product->name)->where('brand', $product->brand)->get();
 
         return $this->style($variants);
     }
@@ -66,6 +66,9 @@ class Catalog
             'brand' => $first->brand,
             'category' => $first->category,
             'color' => $first->color,
+            // Photo of the colour shown on the card, else any photo of the style.
+            'image' => ($variants->first(fn (Product $p) => $p->image && $p->color === $first->color)
+                ?? $variants->first(fn (Product $p) => $p->image))?->imageUrl(),
             'price_min' => $prices->min(),
             'price_max' => $prices->max(),
             'colors' => $variants->pluck('color')->filter()->unique(fn ($c) => mb_strtolower($c))->values()->all(),

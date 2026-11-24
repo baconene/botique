@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Pos\Product;
+use App\Models\Pos\ProductImage;
 use App\Services\Pos\Inventory;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -131,6 +132,106 @@ class BoutiqueProductSeeder extends Seeder
         ]],
     ];
 
+    /**
+     * One photo per style: free-to-use Unsplash photos (https://unsplash.com/license), loaded from
+     * Unsplash's CDN and resized by it (see Look::img). Replace them with your own in Inventory → Edit.
+     */
+    public const PHOTOS = [
+        // Dresses
+        'Linen Wrap Dress' => '1764298493197-a1c1cce57800',
+        'Satin Slip Midi Dress' => '1594019739447-6c8a1d744d61',
+        'Tiered Cotton Maxi Dress' => '1496747611176-843222e1e57c',
+        'Smocked Floral Sundress' => '1762154057377-cc9d3dd6900c',
+        'Ribbed Bodycon Dress' => '1789110853239-56a3f1f2142e',
+        'Puff Sleeve Mini Dress' => '1632262049811-86d23941618b',
+        'Shirt Dress with Belt' => '1789111161022-1970ba92f3b9',
+        'Pleated Halter Dress' => '1499939667766-4afceb292d05',
+        'Eyelet Babydoll Dress' => '1789110854264-0512e2a4bcd7',
+        'Knit Polo Dress' => '1789110520279-49e8a3a6fb91',
+        // Tops
+        'Silk Cami Top' => '1588186941286-724357304676',
+        'Puff Sleeve Blouse' => '1704775990821-23af362863d9',
+        'Ribbed Knit Tank' => '1789110855604-b693bd403e43',
+        'Linen Button-Up Shirt' => '1713881587420-113c1c43e28a',
+        'Square Neck Crop Top' => '1548389995-fbd3151a501f',
+        'Oversized Cotton Tee' => '1622445275992-e7efb32d2257',
+        'Ruffle Trim Blouse' => '1778826971124-c5ee892e266e',
+        'Off-Shoulder Top' => '1790516099879-091fc87cdf6d',
+        'Satin Button Shirt' => '1790539459929-4b40e8b3f694',
+        'Lace Trim Camisole' => '1770294758971-44fa1eae61a3',
+        // Bottoms
+        'High-Rise Wide Leg Jeans' => '1598554747436-c9293d6a588f',
+        'Straight Leg Mom Jeans' => '1584642425274-db2c9bf955a8',
+        'Pleated Midi Skirt' => '1789110853398-539d78dd63bc',
+        'Tailored Linen Trousers' => '1789110853687-71692f0e86be',
+        'Satin Bias Midi Skirt' => '1791745338926-0c641704cb1d',
+        'Denim Mini Skirt' => '1743356914615-66062f1850e6',
+        'Paperbag Waist Shorts' => '1729719762110-6ad6e60f4dbd',
+        'Wide Leg Culottes' => '1789110519554-bdca2e4549e5',
+        'Knit Lounge Pants' => '1759229874786-6d0cc75d95be',
+        'Cargo Parachute Pants' => '1789028152833-cb9c223235d2',
+        // Knitwear
+        'Cashmere Crew Sweater' => '1610901157620-340856d0a50f',
+        'Chunky Cardigan' => '1610288311735-39b7facbd095',
+        'Cropped Cable Knit Sweater' => '1536992266094-82847e1fd431',
+        'V-Neck Merino Pullover' => '1765337210176-1bb643f4776b',
+        'Ribbed Turtleneck' => '1774727485537-e5455eec8baa',
+        'Knit Sweater Vest' => '1784816836059-86bff419a8f8',
+        'Mohair Blend Cardigan' => '1773747310674-b42a55d72003',
+        'Fine Knit Polo Sweater' => '1711355249709-1733df63e028',
+        'Off-Shoulder Knit Top' => '1768794521925-aaa277cc3a78',
+        'Knit Co-ord Set' => '1707279086909-4e4ec2df07b0',
+        // Outerwear
+        'Cropped Trench Coat' => '1676716105765-e19fe6a01851',
+        'Classic Denim Jacket' => '1611312449408-fcece27cdbb7',
+        'Oversized Blazer' => '1779398970492-2e5f14f9da93',
+        'Linen Shacket' => '1740710748146-a15d840d6f40',
+        'Faux Leather Moto Jacket' => '1602370463198-086436840055',
+        'Quilted Liner Jacket' => '1776774646358-e7a8a9063375',
+        'Cropped Tweed Jacket' => '1649937408746-4d2f603f91c8',
+        'Lightweight Utility Jacket' => '1544022613-e87ca75a784a',
+        'Wool Blend Long Coat' => '1618333453296-9e35280fd6b1',
+        'Hooded Windbreaker' => '1571524632030-caf8f11fb9d3',
+        // Shoes
+        'Strappy Block Heel Sandals' => '1770757685000-c80e45122986',
+        'Leather Ballet Flats' => '1674500762924-612a431c28dd',
+        'Platform Sneakers' => '1553808373-92b0bcc3af65',
+        'Slingback Kitten Heels' => '1596702874230-b5706dfb5bc7',
+        'Woven Slide Sandals' => '1627388484741-74dcc56ec343',
+        'Chunky Loafers' => '1654945419086-bcb1c1e1b875',
+        'Ankle Chelsea Boots' => '1788478963160-1c38139e2932',
+        'Espadrille Wedges' => '1565953198075-db265882ee68',
+        'Pointed Toe Mules' => '1755151606192-1c4b4bb88390',
+        'Canvas Low-Top Sneakers' => '1676379760823-ebf91f45de0b',
+        // Bags
+        'Woven Straw Tote' => '1641934777532-d277296b111c',
+        'Mini Shoulder Bag' => '1604176424472-17cd740f74e9',
+        'Quilted Chain Crossbody' => '1681747685985-a401c271156c',
+        'Canvas Market Tote' => '1544816155-12df9643f363',
+        'Leather Bucket Bag' => '1613482184972-f9c1022d0928',
+        'Pleated Pouch Clutch' => '1761646238176-b480909e6ba6',
+        'Rattan Round Bag' => '1684721688363-74cac722068a',
+        'Nylon Belt Bag' => '1657603719375-8ffdacaac790',
+        'Structured Top Handle Bag' => '1605733513597-a8f8341084e6',
+        'Mini Backpack' => '1680039211156-66c721b87625',
+        // Accessories
+        'Silk Hair Scarf' => '1777795530497-205664bbd965',
+        'Pearl Hair Clip Set' => '1767442989822-1f8efcfefc15',
+        'Gold Hoop Earrings' => '1617038220319-276d3cfab638',
+        'Layered Chain Necklace' => '1601821765780-754fa98637c1',
+        'Wide Brim Straw Hat' => '1518061124653-4b85d51931f1',
+        'Woven Leather Belt' => '1784832555222-230841ae7b34',
+        'Oversized Cat-Eye Sunglasses' => '1760446031524-79586718421d',
+        'Claw Clip Duo' => '1774301844178-c9ce96b76d92',
+        'Beaded Charm Bracelet' => '1638768892257-8aec93a524e5',
+        'Knit Beanie' => '1544967919-44c1ef2f9e7a',
+    ];
+
+    public static function photoUrl(string $style): ?string
+    {
+        return isset(self::PHOTOS[$style]) ? 'https://images.unsplash.com/photo-'.self::PHOTOS[$style] : null;
+    }
+
     public function run(): void
     {
         $added = $this->seedCatalogue(app(Inventory::class));
@@ -149,9 +250,10 @@ class BoutiqueProductSeeder extends Seeder
                     [$name, $brand, $colors, $price, $cost] = $style;
                     foreach ($colors as $color) {
                         foreach ($style[5] ?? $sizes as $size) {
-                            $exists = Product::where('name', $name)->where('brand', $brand)
-                                ->where('color', $color)->where('size', $size)->exists();
-                            if ($exists) {
+                            $existing = Product::where('name', $name)->where('brand', $brand)
+                                ->where('color', $color)->where('size', $size)->first();
+                            if ($existing) {
+                                $this->addPhoto($existing->id, $name);   // older demo items get their photo too
                                 continue;
                             }
                             $qty = self::stockFor($name, $color, $size);
@@ -163,6 +265,7 @@ class BoutiqueProductSeeder extends Seeder
                             $p->barcode = $inventory->nextBarcode();
                             $p->save();
                             $inventory->log($p->id, $qty, 'new item', 'demo', 'demo-data');
+                            $this->addPhoto($p->id, $name);
                             $added++;
                         }
                     }
@@ -171,6 +274,15 @@ class BoutiqueProductSeeder extends Seeder
         });
 
         return $added;
+    }
+
+    /** Sets the style's photo unless the item already has one (a photo you uploaded is never replaced). */
+    private function addPhoto(string $productId, string $style): void
+    {
+        $url = self::photoUrl($style);
+        if ($url && ! ProductImage::where('product_id', $productId)->exists()) {
+            ProductImage::create(['product_id' => $productId, 'path' => $url]);
+        }
     }
 
     public static function styleCount(): int

@@ -4,7 +4,7 @@ namespace App\Support;
 
 /**
  * Presentation helpers for the storefront and back office: color swatches, garment shapes, money.
- * (There are no product photos in the POS yet, so items are drawn as tinted garment illustrations.)
+ * Items without a photo are drawn as tinted garment illustrations.
  */
 final class Look
 {
@@ -63,6 +63,25 @@ final class Look
             str_contains($c, 'jewel') => 'M100 60 A50 50 0 1 1 99.9 60 Z M100 80 A30 30 0 1 0 100.1 80 Z',
             default => 'M74 28 L100 40 L126 28 L170 58 L152 92 L140 86 L140 214 L60 214 L60 86 L48 92 L30 58 Z',   // tops
         };
+    }
+
+    /**
+     * Image URL at a given width. Unsplash images are resized and cropped (4:5) by their CDN;
+     * uploads and other links are returned unchanged.
+     */
+    public static function img(?string $url, int $width = 800): ?string
+    {
+        if (! $url) {
+            return null;
+        }
+        if (str_starts_with($url, 'https://images.unsplash.com/')) {
+            $base = strtok($url, '?');
+            $h = (int) round($width * 1.25);
+
+            return "{$base}?auto=format&fit=crop&crop=entropy&w={$width}&h={$h}&q=72";
+        }
+
+        return $url;
     }
 
     public static function money(float|int|string|null $amount): string

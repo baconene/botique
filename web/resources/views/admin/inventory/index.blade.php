@@ -36,7 +36,12 @@
         @forelse ($products as $p)
             <tr>
                 <td><code>{{ $p->barcode }}</code></td>
-                <td><strong>{{ $p->name }}</strong>@if ($p->brand)<br><span class="muted" style="font-size:.82rem">{{ $p->brand }}</span>@endif</td>
+                <td>
+                    <div class="item-cell">
+                        <div class="thumb">@include('partials.art', ['category' => $p->category, 'color' => $p->color, 'image' => $p->imageUrl(), 'width' => 120, 'alt' => $p->name])</div>
+                        <div><strong>{{ $p->name }}</strong>@if ($p->brand)<br><span class="muted" style="font-size:.82rem">{{ $p->brand }}</span>@endif</div>
+                    </div>
+                </td>
                 <td>{{ $p->category ?: '—' }}</td>
                 <td>{{ trim($p->size.' / '.$p->color, ' /') ?: '—' }}</td>
                 <td class="num">{{ $L::money($p->price) }}</td>

@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Pos\Product;
+use App\Services\Pos\ProductImages;
 use App\Services\Pos\ProductService;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -12,7 +14,7 @@ use Illuminate\View\View;
 /** Online inventory: the same items, stock and rules as the Windows POS. */
 class InventoryController extends Controller
 {
-    public function __construct(private ProductService $products) {}
+    public function __construct(private ProductService $products, private ProductImages $images) {}
 
     public function index(Request $request): View
     {
@@ -21,7 +23,7 @@ class InventoryController extends Controller
             'category' => ['nullable', 'string', 'max:100'],
             'low' => ['nullable', 'boolean'],
         ]);
-        $query = Product::query()->orderBy('name')->orderBy('color')->orderBy('size');
+        $query = Product::query()->with('image')->orderBy('name')->orderBy('color')->orderBy('size');
         foreach (preg_split('/\s+/', trim($v['q'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) as $token) {
             $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $token).'%';
             $query->where(fn ($w) => $w->where('name', 'like', $like)->orWhere('barcode', 'like', $like)
@@ -51,30 +53,52 @@ class InventoryController extends Controller
     public function create(Request $request): View
     {
         // "Add variant": prefill from an existing item (new size/color, new barcode).
-        $template = $request->filled('from') ? Product::find($request->query('from')) : null;
+        $template = $request->filled('from') ? Product::with('image')->find($request->query('from')) : null;
 
         return view('admin.inventory.form', ['product' => null, 'template' => $template, 'categories' => $this->categories()]);
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $v = $request->validate(ProductService::rules(null));
-        $p = $this->products->create($v, $request->user());
+        $v = $request->validate(ProductService::rules(null) + ProductImages::rules());
+        $p = $this->products->create(collect($v)->except(ProductImages::FIELDS)->all(), $request->user());
+        $photo = $this->images->applyForm($p, $v, $request->file('photo'));
+        if (! $photo && $request->filled('copy_photo_from') && ($from = Product::with('image')->find($request->input('copy_photo_from'))) && $from->image) {
+            $this->images->assign($p, $from->image->path);   // "Add variant" keeps the style's photo
+        }
 
-        return redirect()->route('admin.inventory.index', ['q' => $p->barcode])->with('status', "Added {$p->name} ({$p->barcode}).");
+        return redirect()->route('admin.inventory.index', ['q' => $p->barcode])
+            ->with('status', "Added {$p->name} ({$p->barcode})".($photo ? ", {$photo}" : '').'.');
     }
 
     public function edit(Product $product): View
     {
-        return view('admin.inventory.form', ['product' => $product, 'template' => null, 'categories' => $this->categories()]);
+        $product->load('image');
+        $siblings = Product::where('name', $product->name)->where('brand', $product->brand)->where('id', '!=', $product->id)->get(['id', 'color']);
+
+        return view('admin.inventory.form', [
+            'product' => $product, 'template' => null, 'categories' => $this->categories(),
+            'sameColor' => $siblings->where('color', $product->color)->count(), 'sameStyle' => $siblings->count(),
+        ]);
     }
 
     public function update(Request $request, Product $product): RedirectResponse
     {
-        $v = $request->validate(ProductService::rules($product));
-        $p = $this->products->update($product, $v, $request->user());
+        $v = $request->validate(ProductService::rules($product) + ProductImages::rules());
+        $p = $this->products->update($product, collect($v)->except(ProductImages::FIELDS)->all(), $request->user());
+        $photo = $this->images->applyForm($p, $v, $request->file('photo'));
 
-        return redirect()->route('admin.inventory.index', ['q' => $p->barcode])->with('status', "Saved {$p->name}. On hand: {$p->quantity}.");
+        return redirect()->route('admin.inventory.index', ['q' => $p->barcode])
+            ->with('status', "Saved {$p->name}. On hand: {$p->quantity}".($photo ? ", {$photo}" : '').'.');
+    }
+
+    /** Serves uploaded product photos (no storage:link needed on the server). */
+    public function media(string $file)
+    {
+        $path = 'products/'.$file;
+        abort_unless(Storage::disk(ProductImages::DISK)->exists($path), 404);
+
+        return Storage::disk(ProductImages::DISK)->response($path, null, ['Cache-Control' => 'public, max-age=604800']);
     }
 
     public function adjust(Request $request, Product $product): RedirectResponse

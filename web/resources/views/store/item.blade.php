@@ -5,7 +5,12 @@
 @section('content')
 <div class="wrap item-layout">
     <div class="item-art">
-        @include('partials.art', ['category' => $style['category'], 'color' => $selected->color ?: $style['color'], 'tag' => $style['in_stock'] <= 0 ? 'Sold out' : null])
+        @include('partials.art', [
+            'category' => $style['category'], 'color' => $selected->color ?: $style['color'],
+            'image' => $selected->imageUrl() ?: $style['image'], 'width' => 1000,
+            'alt' => trim($style['brand'].' '.$style['name'].' in '.($selected->color ?: $style['color']), ' in'),
+            'tag' => $style['in_stock'] <= 0 ? 'Sold out' : null,
+        ])
     </div>
     <div>
         <a class="muted" href="{{ route('shop', ['category' => $style['category']]) }}">&larr; {{ $style['category'] ?: 'Shop' }}</a>

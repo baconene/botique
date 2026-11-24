@@ -115,5 +115,6 @@ class ProductService
             ]);
             $product->delete();   // past sale lines keep their own copy of name/barcode/price
         });
+        app(ProductImages::class)->forget($product->id);
     }
 }

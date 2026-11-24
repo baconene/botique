@@ -4,6 +4,7 @@ namespace App\Models\Pos;
 
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 
 /**
@@ -41,6 +42,17 @@ class Product extends Model
             'created' => 'datetime',
             'updated' => 'datetime',
         ];
+    }
+
+    /** Photo (Laravel-owned product_images table). Not serialized unless loaded. */
+    public function image(): HasOne
+    {
+        return $this->hasOne(ProductImage::class, 'product_id');
+    }
+
+    public function imageUrl(): ?string
+    {
+        return $this->image?->url();
     }
 
     /** Same id format as the Windows app: Guid.ToString("N"). */

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', [StorefrontController::class, 'home'])->name('home');
 Route::get('/shop', [StorefrontController::class, 'shop'])->name('shop');
 Route::get('/shop/item/{product}', [StorefrontController::class, 'item'])->name('shop.item');
+Route::get('/media/products/{file}', [InventoryController::class, 'media'])->where('file', '[A-Za-z0-9._-]+')->name('media.product');
 
 // ---------------- Staff sign-in (same accounts and roles as the Windows POS) ----------------
 Route::get('/login', [StaffAuthController::class, 'show'])->name('login');
