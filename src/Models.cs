@@ -105,6 +105,9 @@ namespace BoutiquePOS
         /// </summary>
         [XmlIgnore] public string ClientRef { get; set; }
 
+        /// <summary>Register or device that rang up the sale ("Web POS / maria" for the browser POS). Read-only; analytics channel filter.</summary>
+        [XmlIgnore] public string Terminal { get; set; }
+
         [XmlIgnore] public string Code { get { return DataStore.SaleCode(Number); } }
         [XmlIgnore] public int ItemCount { get { int n = 0; foreach (SaleLine l in Lines) n += l.Quantity; return n; } }
         [XmlIgnore] public string Status { get { return Refunded ? "Refunded" : "Completed"; } }

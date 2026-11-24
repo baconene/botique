@@ -16,8 +16,9 @@ namespace BoutiquePOS
     public class MainForm : Form
     {
         readonly TabControl tabs;
-        readonly TabPage tabOverview, tabSell, tabInventory, tabSales, tabLabels, tabSettings, tabUsers;
+        readonly TabPage tabOverview, tabAnalytics, tabSell, tabInventory, tabSales, tabLabels, tabSettings, tabUsers;
         public readonly OverviewPanel Overview;
+        public readonly AnalyticsPanel Analytics;
         public readonly PosPanel Pos;
         public readonly InventoryPanel Inventory;
         public readonly SalesPanel Sales;
@@ -78,8 +79,10 @@ namespace BoutiquePOS
             Labels = new LabelsPanel(this);
             SettingsView = new SettingsPanel(this);
             UsersView = new UsersPanel(this);
+            Analytics = new AnalyticsPanel(this);
             tabOverview = Page("Overview", Overview, DateTime.Today.ToString("dddd, MMMM d", CultureInfo.InvariantCulture),
                 "Your boutique, at a glance.", "Here is how things are looking today.");
+            tabAnalytics = Page("Analytics", Analytics, "The business edit", "Analytics", "Daily operations, monthly profitability, annual strategy and sales timing, in one place.");
             tabSell = Page("Point of sale", Pos, "The register", "Point of sale", "Scan a barcode or find an item to start checkout.");
             tabInventory = Page("Inventory", Inventory, "Your collection", "Inventory", "Stock levels, prices and product details.");
             tabSales = Page("Sales history", Sales, "The business edit", "Sales history", "Review transactions, reprint receipts and manage refunds.");
@@ -89,16 +92,16 @@ namespace BoutiquePOS
 
             tabs = new PageDeck();
             tabs.Dock = DockStyle.Fill;
-            tabs.TabPages.AddRange(new TabPage[] { tabOverview, tabSell, tabInventory, tabSales, tabLabels, tabSettings, tabUsers });
+            tabs.TabPages.AddRange(new TabPage[] { tabOverview, tabAnalytics, tabSell, tabInventory, tabSales, tabLabels, tabSettings, tabUsers });
 
             // Glyphs from Segoe Fluent Icons / Segoe MDL2 Assets (built into Windows 10 and 11).
-            string[] glyphs = { "", "", "", "", "", "", "" };
-            string[] hints = { "", "F1", "F2", "F3", "F4", "", "" };
+            string[] glyphs = { "", "", "", "", "", "", "", "" };
+            string[] hints = { "", "", "F1", "F2", "F3", "F4", "", "" };
             List<Control> stack = new List<Control>();
             stack.Add(lblStore); stack.Add(tagline); stack.Add(SidebarCaption("WORKSPACE"));
             for (int i = 0; i < tabs.TabPages.Count; i++)
             {
-                if (i == 5)
+                if (tabs.TabPages[i] == tabSettings)
                 {
                     Label second = SidebarCaption("YOUR BOUTIQUE");
                     second.Height = Ui.S(48); second.Padding = new Padding(Ui.S(12), Ui.S(24), 0, 0);
@@ -398,6 +401,7 @@ namespace BoutiquePOS
         bool Allowed(TabPage page)
         {
             if (page == tabOverview) return true;
+            if (page == tabAnalytics) return Session.Can(Permissions.SalesView);
             if (page == tabSell) return Session.Can(Permissions.Sell);
             if (page == tabInventory) return Session.Can(Permissions.InventoryView) || Session.Can(Permissions.InventoryEdit) || Session.Can(Permissions.StockAdjust);
             if (page == tabSales) return Session.Can(Permissions.SalesView) || Session.Can(Permissions.Refund);
@@ -457,6 +461,7 @@ namespace BoutiquePOS
             }
             if (tabs.SelectedTab == tabSell) Pos.FocusScan();
             else if (tabs.SelectedTab == tabOverview) Overview.RefreshData();
+            else if (tabs.SelectedTab == tabAnalytics) Analytics.RefreshData();
             else if (tabs.SelectedTab == tabInventory) Inventory.RefreshGrid();
             else if (tabs.SelectedTab == tabSales) Sales.RefreshList();
             else if (tabs.SelectedTab == tabLabels) Labels.RefreshPreview();

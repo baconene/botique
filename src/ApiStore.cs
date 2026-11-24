@@ -197,6 +197,7 @@ namespace BoutiquePOS
             s.RefundDate = Str(d, "refund_date").Length > 0 ? (DateTime?)Time(d, "refund_date") : null;
             s.Note = Str(d, "note");
             s.Cashier = Str(d, "cashier");
+            s.Terminal = Str(d, "terminal");
             s.Lines = new List<SaleLine>();
             IList lines = d.ContainsKey("lines") ? d["lines"] as IList : null;
             if (lines != null)

@@ -676,7 +676,7 @@ namespace BoutiquePOS
             }
         }
 
-        const string SaleCols = "number, sale_date, subtotal, discount_percent, discount_amount, tax_rate, tax, total, payment_method, amount_tendered, change_due, refunded, refund_date, note, cashier";
+        const string SaleCols = "number, sale_date, subtotal, discount_percent, discount_amount, tax_rate, tax, total, payment_method, amount_tendered, change_due, refunded, refund_date, note, cashier, terminal";
 
         List<Sale> QuerySales(string where, object[] args)
         {
@@ -692,7 +692,7 @@ namespace BoutiquePOS
                         Sale s = new Sale();
                         s.Number = I(r, 0); s.Date = T(r, 1); s.Subtotal = D(r, 2); s.DiscountPercent = D(r, 3); s.DiscountAmount = D(r, 4);
                         s.TaxRate = D(r, 5); s.Tax = D(r, 6); s.Total = D(r, 7); s.PaymentMethod = S(r, 8); s.AmountTendered = D(r, 9);
-                        s.Change = D(r, 10); s.Refunded = I(r, 11) != 0; s.RefundDate = r.IsDBNull(12) ? (DateTime?)null : T(r, 12); s.Note = S(r, 13); s.Cashier = S(r, 14);
+                        s.Change = D(r, 10); s.Refunded = I(r, 11) != 0; s.RefundDate = r.IsDBNull(12) ? (DateTime?)null : T(r, 12); s.Note = S(r, 13); s.Cashier = S(r, 14); s.Terminal = S(r, 15);
                         map[s.Number] = s;
                         list.Add(s);
                     }

@@ -299,19 +299,46 @@ namespace BoutiquePOS
                 form.ShowInTaskbar = false;
                 form.Show();
                 Application.DoEvents();
-                string[] names = { "overview", "sell", "inventory", "sales", "labels", "settings", "users" };
+                string[] names = { "overview", "analytics", "sell", "inventory", "sales", "labels", "settings", "users" };
                 Button[] navigation = form.NavigationButtons;
                 Check(navigation.Length == names.Length, "Sidebar has one button per page (" + navigation.Length + ")");
-                Control[] pages = { form.Overview, form.Pos, form.Inventory, form.Sales, form.Labels, form.SettingsView, form.UsersView };
+                Control[] pages = { form.Overview, form.Analytics, form.Pos, form.Inventory, form.Sales, form.Labels, form.SettingsView, form.UsersView };
                 form.Pos.HandleScan(DataStore.Data.Products.First().Barcode);
                 form.Labels.AddProducts(DataStore.Data.Products.Take(3), false);
                 for (int i = 0; i < names.Length; i++)
                 {
                     navigation[i].PerformClick();
                     Check(pages[i].Visible, "Navigation opens " + names[i]);
-                    if (i == 3) form.Sales.SelectSale(reloaded);
+                    if (i == 4) form.Sales.SelectSale(reloaded);
                     Application.DoEvents();
                     Shot(form, Path.Combine(outDir, "tab-" + names[i] + ".png"));
+                }
+                // Analytics: add a couple of months of varied sales so the charts have something to draw,
+                // then capture every view, scrolled through so the whole report is visible.
+                Random rs = new Random(7);
+                List<Product> pool = DataStore.Data.Products.Where(x => x.Price > 0).ToList();
+                int[] busyHours = { 10, 12, 12, 13, 15, 18, 19, 19, 20, 21 };
+                for (int n = 0; n < 60 && pool.Count > 0; n++)
+                {
+                    Product pick = pool[rs.Next(pool.Count)];
+                    Sale s = new Sale(); s.Number = DataStore.TakeSaleNumber();
+                    SaleLine sl = SaleLine.FromProduct(pick); sl.Quantity = rs.Next(5) == 0 ? 2 : 1; s.Lines.Add(sl);
+                    s.Date = DateTime.Today.AddDays(-rs.Next(0, 60)).AddHours(busyHours[rs.Next(busyHours.Length)]).AddMinutes(rs.Next(60));
+                    if (s.Date > DateTime.Now) s.Date = DateTime.Now.AddMinutes(-5);
+                    s.Subtotal = sl.LineTotal; s.Total = s.Subtotal; s.PaymentMethod = n % 3 == 0 ? "Card" : "Cash"; s.AmountTendered = s.Total;
+                    DataStore.RecordSale(s);
+                }
+                string[] reports = { "daily", "monthly", "annual", "timing" };
+                for (int v = 0; v < reports.Length; v++)
+                {
+                    navigation[1].PerformClick();
+                    form.Analytics.ShowView(v); Application.DoEvents();
+                    Check(form.Analytics.ContentHeight > 0, "Analytics " + reports[v] + " view renders");
+                    for (int part = 0, y = 0; y < form.Analytics.ContentHeight && part < 4; part++, y += Ui.S(620))
+                    {
+                        form.Analytics.ScrollTo(y); Application.DoEvents();
+                        Shot(form, Path.Combine(outDir, "analytics-" + reports[v] + "-" + (part + 1) + ".png"));
+                    }
                 }
                 using (ProductDialog editor = new ProductDialog(DataStore.Data.Products.First(), null, null))
                 {

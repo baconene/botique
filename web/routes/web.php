@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Web\AdminController;
+use App\Http\Controllers\Web\AnalyticsController;
 use App\Http\Controllers\Web\InventoryController;
 use App\Http\Controllers\Web\PosController;
 use App\Http\Controllers\Web\ReportController;
@@ -23,6 +24,10 @@ Route::post('/logout', [StaffAuthController::class, 'logout'])->name('logout');
 // ---------------- Back office ----------------
 Route::prefix('admin')->name('admin.')->middleware(['auth:staff', 'staff.session'])->group(function () {
     Route::get('/', [AdminController::class, 'dashboard'])->name('dashboard');
+    Route::middleware('pos.can:sales.view')->group(function () {
+        Route::get('analytics', [AnalyticsController::class, 'index'])->name('analytics');
+        Route::get('analytics/data', [AnalyticsController::class, 'data'])->name('analytics.data');
+    });
     Route::get('reports/sales', [ReportController::class, 'sales'])->middleware('pos.can:sales.view')->name('reports.sales');
     Route::get('reports/inventory', [ReportController::class, 'inventory'])->middleware('pos.can:inventory.view,inventory.edit,stock.adjust')->name('reports.inventory');
     Route::get('settings', [SettingsController::class, 'index'])->middleware('pos.can:settings.manage,users.manage')->name('settings');
