@@ -24,6 +24,8 @@ class StorefrontController extends Controller
             'newest' => $styles->sortByDesc('newest')->where('in_stock', '>', 0)->take(4),
             'categories' => $this->catalog->categories(),
             'styleCount' => $styles->where('in_stock', '>', 0)->count(),
+            // In-stock styles with a photo, for the editorial hero and mood frames.
+            'photos' => $styles->where('in_stock', '>', 0)->filter(fn ($s) => $s['image'])->values(),
         ]);
     }
 

@@ -14,7 +14,6 @@
 </head>
 <body class="storefront">
     <a class="skip-link" href="#main-content">Skip to content</a>
-    <div class="store-note">A little inspiration. A wardrobe that feels like you.</div>
     <header class="boutique-header">
         <div class="wrap header-inner">
             <a class="brandmark" href="{{ route('home') }}">{{ $store['StoreName'] }}<span>THE EVERYDAY EDIT</span></a>
