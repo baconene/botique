@@ -85,16 +85,18 @@
         </div>
         <div class="field">
             <label for="brand">Brand</label>
-            <input id="brand" name="brand" value="{{ old('brand', $src->brand ?? '') }}">
+            <input id="brand" name="brand" list="brands" value="{{ old('brand', $src->brand ?? '') }}">
+            <datalist id="brands">@foreach (app(\App\Services\Pos\ReferenceData::class)->options('brand') as $value)<option value="{{ $value }}">@endforeach</datalist>
         </div>
         <div class="field">
             <label for="size">Size</label>
             <input id="size" name="size" list="sizes" value="{{ old('size', $editing ? $product->size : '') }}" @if ($template) autofocus @endif>
-            <datalist id="sizes">@foreach (['XXS','XS','S','M','L','XL','XXL','0','2','4','6','8','10','12','14','26','27','28','29','30','One Size'] as $s)<option value="{{ $s }}">@endforeach</datalist>
+            <datalist id="sizes">@foreach (app(\App\Services\Pos\ReferenceData::class)->options('size') as $s)<option value="{{ $s }}">@endforeach</datalist>
         </div>
         <div class="field">
             <label for="color">Color</label>
-            <input id="color" name="color" value="{{ old('color', $src->color ?? '') }}">
+            <input id="color" name="color" list="colors" value="{{ old('color', $src->color ?? '') }}">
+            <datalist id="colors">@foreach (app(\App\Services\Pos\ReferenceData::class)->options('color') as $value)<option value="{{ $value }}">@endforeach</datalist>
         </div>
         <div class="field">
             <label for="price">Retail price *</label>

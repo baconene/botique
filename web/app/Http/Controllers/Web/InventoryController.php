@@ -6,9 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Pos\Product;
 use App\Services\Pos\ProductImages;
 use App\Services\Pos\ProductService;
-use Illuminate\Support\Facades\Storage;
+use App\Services\Pos\ReferenceData;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 /** Online inventory: the same items, stock and rules as the Windows POS. */
@@ -119,7 +120,6 @@ class InventoryController extends Controller
 
     private function categories()
     {
-        return Product::where('category', '!=', '')->distinct()->orderBy('category')->pluck('category')
-            ->merge(['Dresses', 'Tops', 'Bottoms', 'Outerwear', 'Knitwear', 'Accessories', 'Shoes', 'Jewelry'])->unique()->sort()->values();
+        return app(ReferenceData::class)->options('category');
     }
 }

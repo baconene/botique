@@ -3,6 +3,8 @@
 use App\Http\Controllers\Web\AdminController;
 use App\Http\Controllers\Web\InventoryController;
 use App\Http\Controllers\Web\PosController;
+use App\Http\Controllers\Web\ReportController;
+use App\Http\Controllers\Web\SettingsController;
 use App\Http\Controllers\Web\StaffAuthController;
 use App\Http\Controllers\Web\StorefrontController;
 use Illuminate\Support\Facades\Route;
@@ -21,6 +23,20 @@ Route::post('/logout', [StaffAuthController::class, 'logout'])->name('logout');
 // ---------------- Back office ----------------
 Route::prefix('admin')->name('admin.')->middleware(['auth:staff', 'staff.session'])->group(function () {
     Route::get('/', [AdminController::class, 'dashboard'])->name('dashboard');
+    Route::get('reports/sales', [ReportController::class, 'sales'])->middleware('pos.can:sales.view')->name('reports.sales');
+    Route::get('reports/inventory', [ReportController::class, 'inventory'])->middleware('pos.can:inventory.view,inventory.edit,stock.adjust')->name('reports.inventory');
+    Route::get('settings', [SettingsController::class, 'index'])->middleware('pos.can:settings.manage,users.manage')->name('settings');
+    Route::middleware('pos.can:settings.manage')->group(function () {
+        Route::put('settings/store', [SettingsController::class, 'store'])->name('settings.store');
+        Route::put('settings/references', [SettingsController::class, 'references'])->name('settings.references');
+    });
+    Route::middleware('pos.can:users.manage')->group(function () {
+        Route::post('settings/roles', [SettingsController::class, 'role'])->name('settings.roles.create');
+        Route::put('settings/roles/{role}', [SettingsController::class, 'role'])->name('settings.roles.update');
+        Route::delete('settings/roles/{role}', [SettingsController::class, 'deleteRole'])->name('settings.roles.delete');
+        Route::post('settings/staff', [SettingsController::class, 'user'])->name('settings.staff.create');
+        Route::put('settings/staff/{staff}', [SettingsController::class, 'user'])->name('settings.staff.update');
+    });
 
     Route::middleware('pos.can:sell')->group(function () {
         Route::get('pos', [PosController::class, 'index'])->name('pos');
