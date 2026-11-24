@@ -20,6 +20,10 @@ namespace BoutiquePOS
         CheckBox chkPrint;
         Button btnComplete;
         Sale lastSale;
+        TableLayoutPanel lastCard;
+        Label lblLastHead, lblLastBody;
+        bool checkingOut;            // a sale is being saved: ignore F12 / Enter / clicks
+        string pendingClientRef;     // reused by "Try again" so a sale is never recorded twice
         Button btnChangePrice;
         DataGridViewTextBoxColumn colPrice;
 
@@ -243,11 +247,22 @@ namespace BoutiquePOS
             btnComplete.Click += delegate { CompleteSale(); };
             rightHost.Controls.Add(btnComplete);
 
+            // "Last sale completed" card: stays visible so nobody has to wonder whether the previous sale went through.
+            lastCard = new TableLayoutPanel();
+            lastCard.AutoSize = true; lastCard.Dock = DockStyle.Fill; lastCard.ColumnCount = 1;
+            lastCard.BackColor = Color.FromArgb(230, 244, 236);
+            lastCard.Padding = new Padding(Ui.S(12), Ui.S(10), Ui.S(12), Ui.S(8));
+            lastCard.Margin = new Padding(Ui.S(3), Ui.S(10), Ui.S(3), Ui.S(3));
+            lastCard.Visible = false;
+            lblLastHead = new Label(); lblLastHead.AutoSize = true; lblLastHead.UseMnemonic = false;
+            lblLastHead.ForeColor = Ui.Good; lblLastHead.Font = new Font("Segoe UI Semibold", 10.5f);
+            lblLastBody = new Label(); lblLastBody.AutoSize = true; lblLastBody.UseMnemonic = false; lblLastBody.MaximumSize = new Size(Ui.S(330), 0);
             FlowLayoutPanel after = new FlowLayoutPanel();
-            after.AutoSize = true; after.Dock = DockStyle.Fill;
-            after.Controls.Add(Ui.MakeButton("Reprint last receipt", delegate { Reprint(); }));
-            after.Controls.Add(Ui.MakeButton("Open last sale", delegate { if (lastSale != null) main.GoToSale(lastSale); }));
-            AddSpan(right, after);
+            after.AutoSize = true; after.Dock = DockStyle.Fill; after.BackColor = lastCard.BackColor;
+            after.Controls.Add(Ui.MakeButton("Reprint receipt", delegate { Reprint(); }));
+            after.Controls.Add(Ui.MakeButton("Open sale", delegate { if (lastSale != null) main.GoToSale(lastSale); }));
+            lastCard.Controls.Add(lblLastHead); lastCard.Controls.Add(lblLastBody); lastCard.Controls.Add(after);
+            AddSpan(right, lastCard);
 
             right.RowCount++;
             right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -433,6 +448,7 @@ namespace BoutiquePOS
 
         void ClearSale()
         {
+            pendingClientRef = null;
             cart.Clear();
             numDiscount.Value = 0;
             txtTendered.Clear();
@@ -477,8 +493,13 @@ namespace BoutiquePOS
             else { lblChange.Text = Ui.Money(0); lblChange.ForeColor = Color.Black; }
         }
 
+        /// <summary>
+        /// Checkout: validate, show "Completing sale..." while the sale is saved in the background, then show an
+        /// unmistakable result (completed / not completed / not confirmed). The cart is only cleared after success.
+        /// </summary>
         public void CompleteSale()
         {
+            if (checkingOut) return;   // already saving: a second press must not start another sale
             if (grid.IsCurrentCellInEditMode) grid.EndEdit();
             if (cart.Count == 0) { Message("Scan at least one item first.", true); FocusScan(); return; }
 
@@ -489,59 +510,120 @@ namespace BoutiquePOS
             if (method == "Cash" && txtTendered.Text.Trim().Length > 0)
             {
                 if (!Ui.TryParseMoney(txtTendered.Text, out tendered)) { Message("Enter the cash amount received.", true); txtTendered.Focus(); return; }
-                if (tendered < total) { Message("Cash received is less than the total.", true); txtTendered.Focus(); return; }
+                if (tendered < total) { Message("Cash received (" + Ui.Money(tendered) + ") is less than the total (" + Ui.Money(total) + ").", true); txtTendered.Focus(); return; }
             }
+            if (pendingClientRef == null) pendingClientRef = Guid.NewGuid().ToString();
 
-            Sale sale = new Sale();
-            try { sale.Number = DataStore.TakeSaleNumber(); }
-            catch (Exception ex) { Ui.Error(this, "Cannot reach the database:\n" + ex.Message); return; }
-            sale.Date = DateTime.Now;
-            sale.Lines = cart.Select(l => l.Clone()).ToList();
-            sale.Subtotal = sub;
-            sale.DiscountPercent = numDiscount.Value;
-            sale.DiscountAmount = disc;
-            sale.TaxRate = DataStore.Data.Settings.TaxRatePercent;
-            sale.Tax = tax;
-            sale.Total = total;
-            sale.PaymentMethod = method;
-            sale.AmountTendered = tendered;
-            sale.Change = method == "Cash" ? tendered - total : 0;
+            while (true)
+            {
+                Sale sale = new Sale();
+                sale.ClientRef = pendingClientRef;
+                sale.Date = DateTime.Now;
+                sale.Lines = cart.Select(l => l.Clone()).ToList();
+                sale.Subtotal = sub;
+                sale.DiscountPercent = numDiscount.Value;
+                sale.DiscountAmount = disc;
+                sale.TaxRate = DataStore.Data.Settings.TaxRatePercent;
+                sale.Tax = tax;
+                sale.Total = total;
+                sale.PaymentMethod = method;
+                sale.AmountTendered = tendered;
+                sale.Change = method == "Cash" ? tendered - total : 0;
 
+                Exception error = Save(sale, total, method);
+                if (error == null) { Completed(sale); return; }
+
+                // Only a lost connection leaves the outcome unknown; anything else means nothing was saved.
+                SaleOutcome outcome = error is ApiUnavailableException ? SaleOutcome.Uncertain : SaleOutcome.Failed;
+                SystemSounds.Hand.Play();
+                Message(outcome == SaleOutcome.Failed
+                    ? "Sale NOT completed - nothing was charged. The items are still in the cart."
+                    : "Sale not confirmed - press Complete sale again to check (it can't be recorded twice).", true);
+                main.SetStatus(outcome == SaleOutcome.Failed ? "Sale not completed: " + error.Message : "Sale not confirmed: connection lost.", true);
+                using (SaleResultForm f = new SaleResultForm(outcome, null, total, null, error.Message, null))
+                {
+                    f.ShowDialog(this);
+                    if (!f.RetryRequested) { FocusScan(); return; }
+                }
+            }
+        }
+
+        /// <summary>Saves on a background thread behind the "Completing sale..." window. Returns the error, or null.</summary>
+        Exception Save(Sale sale, decimal total, string method)
+        {
+            checkingOut = true;
+            btnComplete.Enabled = false;
+            btnComplete.Text = "Saving sale...";
+            Message("Completing sale - please wait...", false);
             try
             {
-                DataStore.RecordSale(sale);
+                using (ProcessingForm p = new ProcessingForm("Completing sale...", Ui.Money(total) + "  -  " + method,
+                    DataStore.Store.Describe, delegate
+                    {
+                        if (sale.Number == 0) sale.Number = DataStore.TakeSaleNumber();   // web server assigns it instead (0)
+                        DataStore.RecordSale(sale);
+                    }))
+                {
+                    p.ShowDialog(this);
+                    return p.Error;
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                Ui.Error(this, "The sale could not be saved, so nothing was charged or removed from stock.\n\n" + ex.Message +
-                    "\n\nCheck the database connection and press Complete Sale again.");
-                return;
+                checkingOut = false;
+                btnComplete.Enabled = true;
+                btnComplete.Text = "Complete Sale  (F12)";
             }
-            lastSale = sale;
+        }
 
-            if (chkPrint.Checked) PrintReceipt(sale);
+        void Completed(Sale sale)
+        {
+            lastSale = sale;
+            pendingClientRef = null;
+            string receipt = chkPrint.Checked ? PrintReceipt(sale) : "Receipt not printed (\"Print receipt\" is off). You can print it below.";
 
             ClearSale();
             main.DataChanged();
-            string msg = "Sale " + sale.Code + " complete - " + Ui.Money(sale.Total) + " (" + method + ")";
-            if (sale.Change > 0) msg += ".  CHANGE DUE: " + Ui.Money(sale.Change);
+            ShowLastSale(sale);
+            SystemSounds.Asterisk.Play();
+            string msg = "✔ Sale " + sale.Code + " completed - " + Ui.Money(sale.Total) + " (" + sale.PaymentMethod + ")";
+            if (sale.Change > 0) msg += ".  Change due: " + Ui.Money(sale.Change);
             Message(msg, false);
             main.SetStatus(msg);
-            if (sale.Change > 0)
-                MessageBox.Show(this, "Change due: " + Ui.Money(sale.Change), "Sale " + sale.Code, MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            using (SaleResultForm f = new SaleResultForm(SaleOutcome.Completed, sale, sale.Total, receipt, null, delegate { return PrintReceipt(sale); }))
+                f.ShowDialog(this);
+            Message("Ready for the next customer. Last sale " + sale.Code + " was completed.", false);
             FocusScan();
         }
 
-        void PrintReceipt(Sale sale)
+        void ShowLastSale(Sale sale)
         {
-            try { ReceiptPrinter.Print(sale, DataStore.Data.Settings); }
-            catch (Exception ex) { Ui.Error(this, "The sale was saved, but the receipt could not be printed:\n" + ex.Message); }
+            lblLastHead.Text = "✔ Last sale completed - " + sale.Code;
+            lblLastBody.Text = sale.Date.ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture) + "  |  " + Ui.Money(sale.Total) + " " + sale.PaymentMethod +
+                (sale.PaymentMethod == "Cash" && sale.Change > 0 ? "  |  change " + Ui.Money(sale.Change) : "") +
+                "  |  " + sale.ItemCount + (sale.ItemCount == 1 ? " item" : " items");
+            lastCard.Visible = true;
+        }
+
+        /// <summary>Prints and returns a status line for the result window (never throws).</summary>
+        string PrintReceipt(Sale sale)
+        {
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                ReceiptPrinter.Print(sale, DataStore.Data.Settings);
+                return "Receipt printed (sent to " + (string.IsNullOrEmpty(DataStore.Data.Settings.ReceiptPrinter) ? "the default printer" : DataStore.Data.Settings.ReceiptPrinter) + ").";
+            }
+            catch (Exception ex) { return "Receipt could not be printed: " + ex.Message + " The sale itself is saved."; }
+            finally { Cursor = Cursors.Default; }
         }
 
         void Reprint()
         {
             if (lastSale == null) { Message("No sale completed yet in this session.", true); return; }
-            PrintReceipt(lastSale);
+            string status = PrintReceipt(lastSale);
+            Message(status, status.StartsWith("Receipt could not"));
         }
     }
 }

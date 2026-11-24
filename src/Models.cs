@@ -99,6 +99,12 @@ namespace BoutiquePOS
 
         public Sale() { Lines = new List<SaleLine>(); PaymentMethod = "Cash"; Note = ""; Cashier = ""; Date = DateTime.Now; }
 
+        /// <summary>
+        /// One ID per checkout attempt, reused when the cashier presses Try again, so the web server
+        /// never records the same sale twice (it replays the original instead).
+        /// </summary>
+        [XmlIgnore] public string ClientRef { get; set; }
+
         [XmlIgnore] public string Code { get { return DataStore.SaleCode(Number); } }
         [XmlIgnore] public int ItemCount { get { int n = 0; foreach (SaleLine l in Lines) n += l.Quantity; return n; } }
         [XmlIgnore] public string Status { get { return Refunded ? "Refunded" : "Completed"; } }

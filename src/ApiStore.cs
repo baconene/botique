@@ -319,7 +319,9 @@ namespace BoutiquePOS
         public Dictionary<string, int> InsertSale(Sale s)
         {
             Dictionary<string, object> b = new Dictionary<string, object>();
-            b["client_ref"] = Guid.NewGuid().ToString();   // same ref on every retry => never charged twice
+            // Same ref on every retry (also across "Try again" in the app) => never recorded twice.
+            if (string.IsNullOrEmpty(s.ClientRef)) s.ClientRef = Guid.NewGuid().ToString();
+            b["client_ref"] = s.ClientRef;
             List<object> lines = new List<object>();
             foreach (SaleLine l in s.Lines)
             {

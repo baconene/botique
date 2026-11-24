@@ -350,6 +350,32 @@ namespace BoutiquePOS
                     Shot(login, Path.Combine(outDir, "login.png"));
                     login.Close();
                 }
+                // Checkout feedback windows
+                using (ProcessingForm pf = new ProcessingForm("Completing sale...", Ui.Money(211.86m) + "  -  Cash", DataStore.Store.Describe,
+                    delegate { System.Threading.Thread.Sleep(5000); }))
+                {
+                    pf.StartPosition = FormStartPosition.Manual; pf.Location = new Point(-5000, -5000);
+                    pf.Show();
+                    DateTime until = DateTime.Now.AddSeconds(4.5);
+                    while (DateTime.Now < until) { Application.DoEvents(); System.Threading.Thread.Sleep(50); }   // let "slow connection" text appear
+                    Shot(pf, Path.Combine(outDir, "checkout-processing.png"));
+                    while (pf.Visible) { Application.DoEvents(); System.Threading.Thread.Sleep(50); }
+                    Check(pf.DialogResult == DialogResult.OK && pf.Error == null, "Processing window closes itself when the save finishes");
+                }
+                Sale shown = new Sale(); shown.Number = 1042; shown.Cashier = "Maria"; shown.PaymentMethod = "Cash";
+                shown.Lines.Add(SaleLine.FromProduct(DataStore.Data.Products[0])); shown.Lines[0].Quantity = 2;
+                shown.Total = 137.71m; shown.AmountTendered = 500m; shown.Change = 362.29m;
+                string[] kinds = { "completed", "failed", "uncertain" };
+                SaleOutcome[] outcomes = { SaleOutcome.Completed, SaleOutcome.Failed, SaleOutcome.Uncertain };
+                string[] errors = { null, "Your role does not allow discounts or price changes.", "Cannot reach the web server (The operation has timed out)" };
+                for (int i = 0; i < 3; i++)
+                    using (SaleResultForm rf = new SaleResultForm(outcomes[i], shown, 137.71m, "Receipt printed (sent to the default printer).", errors[i], delegate { return "Receipt printed."; }))
+                    {
+                        rf.StartPosition = FormStartPosition.Manual; rf.Location = new Point(-5000, -5000);
+                        rf.Show(); Application.DoEvents();
+                        Shot(rf, Path.Combine(outDir, "checkout-" + kinds[i] + ".png"));
+                        rf.Close();
+                    }
                 Check(true, "Captured screenshots");
             }
             catch (Exception ex)
@@ -498,6 +524,20 @@ namespace BoutiquePOS
                 DataStore.SaveUser(cashier, null);
                 Check(Throws(delegate { new ApiStore(cfg).Login(cashier.Username, "cashier123"); }), "Disabled account cannot sign in");
                 DataStore.DeleteUser(cashier);
+
+                // "Try again" after a lost connection: the same ClientRef must replay, not record a second sale
+                Product rp = new Product(); rp.Name = "Retry Test " + DateTime.Now.Ticks; rp.Price = 20m; rp.Quantity = 5;
+                rp.Barcode = DataStore.NextBarcode();
+                DataStore.SaveProduct(rp, null);
+                string sameRef = Guid.NewGuid().ToString();
+                Sale first = new Sale(); first.ClientRef = sameRef; first.PaymentMethod = "Card"; first.Lines.Add(SaleLine.FromProduct(rp));
+                DataStore.RecordSale(first);
+                Sale again = new Sale(); again.ClientRef = sameRef; again.PaymentMethod = "Card"; again.Lines.Add(SaleLine.FromProduct(rp));
+                DataStore.RecordSale(again);
+                Product after = other.FindProduct(rp.Barcode);
+                Check(again.Number == first.Number && after != null && after.Quantity == 4,
+                    "Retrying a sale with the same ID returns " + first.Code + " again and deducts stock only once (on hand " + (after == null ? -1 : after.Quantity) + ")");
+                DataStore.DeleteProducts(new Product[] { DataStore.FindById(rp.Id) });
             }
             catch (Exception ex)
             {
