@@ -59,7 +59,24 @@ class StoreAndBackOfficeTest extends TestCase
         $this->artisan('pos:demo-data')->assertSuccessful();
         $this->assertSame($count, Product::count());
         $this->get('/')->assertOk()->assertSee('Featured pieces')->assertDontSee('Our online collection');
-        $this->get('/shop')->assertOk()->assertSee('Cashmere Crew Sweater')->assertSee('14 styles');   // colorways of one style group together
+        $this->get('/shop')->assertOk()->assertSee('Cashmere Crew Sweater')->assertSee('80 styles');   // colorways of one style group together
+    }
+
+    public function test_product_seeder_adds_ten_styles_per_category_and_can_run_twice(): void
+    {
+        $this->seed(\Database\Seeders\BoutiqueProductSeeder::class);
+        $count = Product::count();
+        $perCategory = Product::query()->selectRaw('category, count(distinct name) as styles')->groupBy('category')->pluck('styles', 'category');
+        $this->assertCount(8, $perCategory);
+        foreach ($perCategory as $category => $styles) {
+            $this->assertGreaterThanOrEqual(10, $styles, $category);
+        }
+        $this->assertSame($count, Product::query()->distinct()->count('barcode'));   // every item has its own barcode
+        $this->assertSame(Product::where('quantity', '>', 0)->count(), (int) \Illuminate\Support\Facades\DB::table('stock_movements')->count());   // opening stock is logged (sold-out samples have none)
+        $this->assertGreaterThan(0, Product::whereColumn('quantity', '<=', 'reorder_level')->count());   // some low stock to show
+
+        $this->seed(\Database\Seeders\BoutiqueProductSeeder::class);                 // second run adds nothing
+        $this->assertSame($count, Product::count());
     }
 
     // ---------------- login ----------------
